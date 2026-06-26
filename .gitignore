@@ -1,0 +1,37 @@
+# macOS
+.DS_Store
+
+# Xcode user/build state
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.xcarchive
+*.ipa
+
+# XcodeGen output — the project is generated from project.yml.
+# Xcode Cloud regenerates it via ci_scripts/ci_post_clone.sh, so it is NOT
+# committed. (Source of truth = project.yml.)
+EEAccess.xcodeproj/
+
+# Build artifacts (root, SwiftPM, vendored packages)
+build/
+.build/
+*.pcm
+*.o
+ModuleCache.noindex/
+
+# Swift Package Manager working state
+.swiftpm/
+Packages/
+
+# Python virtualenvs / tooling
+.venv/
+.venv-*/
+__pycache__/
+*.pyc
+
+# Old Xcode-template backup snapshots
+_xcode_backup_*/
+
+# Logs / scratch
+*.log

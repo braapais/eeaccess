@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AC Box Design Previewer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --panel: #f7f4ed;
+      --panel-line: #d9d0c2;
+      --ink: #1e2428;
+      --muted: #68737b;
+      --wood: #b2733e;
+      --batten: #8c4f27;
+      --accent: #0f7a66;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #e8e3d9;
+    }
+
+    #viewport {
+      position: fixed;
+      inset: 0;
+    }
+
+    .toolbar {
+      position: fixed;
+      left: 16px;
+      top: 16px;
+      display: grid;
+      gap: 10px;
+      width: min(380px, calc(100vw - 32px));
+      padding: 12px;
+      border: 1px solid var(--panel-line);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--panel), transparent 5%);
+      box-shadow: 0 14px 40px rgb(47 39 29 / 16%);
+      backdrop-filter: blur(10px);
+    }
+
+    .title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .dims {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    select,
+    button,
+    label.toggle {
+      min-height: 36px;
+      border: 1px solid var(--panel-line);
+      border-radius: 6px;
+      background: #fffaf1;
+      color: var(--ink);
+      font: inherit;
+      font-size: 13px;
+    }
+
+    select {
+      width: 100%;
+      padding: 0 10px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    button {
+      cursor: pointer;
+      padding: 0 12px;
+    }
+
+    label.toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 10px;
+      user-select: none;
+      cursor: pointer;
+    }
+
+    button:hover,
+    label.toggle:hover,
+    select:hover {
+      border-color: #bba98f;
+    }
+
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: max-content;
+    }
+
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border: 1px solid rgb(0 0 0 / 14%);
+      border-radius: 2px;
+      background: var(--wood);
+    }
+
+    .swatch.batten {
+      background: var(--batten);
+    }
+
+    @media (max-width: 560px) {
+      .toolbar {
+        left: 10px;
+        top: 10px;
+        width: calc(100vw - 20px);
+      }
+
+      .controls {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="viewport" aria-label="3D preview of AC box design alternatives"></canvas>
+
+  <section class="toolbar" aria-label="Preview controls">
+    <div class="title">
+      <h1>AC Box Preview</h1>
+      <span class="dims">clear 1000 x 500 x 600 mm</span>
+    </div>
+
+    <select id="designSelect" aria-label="Design alternative">
+      <option value="final">Final design</option>
+      <option value="service">Alternative 1: service screen</option>
+      <option value="louvered">Alternative 2: louvered airflow</option>
+    </select>
+
+    <div class="controls">
+      <label class="toggle">
+        <span>Transparent</span>
+        <input id="transparentToggle" type="checkbox">
+      </label>
+      <label class="toggle">
+        <span>Edges</span>
+        <input id="edgesToggle" type="checkbox" checked>
+      </label>
+      <button id="resetView" type="button">Reset view</button>
+    </div>
+
+    <div class="legend" aria-label="Preview legend">
+      <span><i class="swatch"></i>Panel/slat material</span>
+      <span><i class="swatch batten"></i>100 x 25 mm battens</span>
+    </div>
+  </section>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const dims = {
+      clearWidth: 1000,
+      clearDepth: 500,
+      height: 600,
+      thickness: 10,
+      plankWidth: 100,
+      altSlatWidth: 80,
+      battenWidth: 100,
+      battenDepth: 25,
+      frontPlankCount: 4,
+      sidePlankCount: 4,
+      topPlankCount: 4,
+      leftSideEndsAtTopPanel: 3
+    };
+    dims.width = dims.clearWidth + (2 * dims.thickness) + (2 * dims.battenDepth);
+    dims.depth = dims.clearDepth + dims.thickness + dims.battenDepth + dims.battenWidth;
+    dims.topGap = (dims.depth - (dims.topPlankCount * dims.plankWidth)) / (dims.topPlankCount - 1);
+    dims.leftSideDepth = (dims.leftSideEndsAtTopPanel * dims.plankWidth)
+      + ((dims.leftSideEndsAtTopPanel - 1) * dims.topGap);
+    dims.rearTopShorten = ((dims.width / 2 - dims.thickness - dims.battenDepth / 2)
+      - (-dims.width / 2 + dims.thickness + dims.battenDepth / 2)) / 4
+      + dims.thickness
+      + ((dims.battenDepth - dims.battenWidth) / 2);
+
+    const scale = 0.004;
+    const mm = (value) => value * scale;
+
+    const canvas = document.querySelector("#viewport");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0xe8e3d9, 1);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0xe8e3d9, 5, 12);
+
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 80);
+    camera.position.set(4.8, 3.0, 3.8);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 1.2;
+    controls.maxDistance = 8;
+    controls.target.set(0, mm(dims.height) / 2, 0);
+
+    const sun = new THREE.DirectionalLight(0xfff4df, 3.2);
+    sun.position.set(2.5, 5, 3);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    scene.add(sun);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xb7aa98, 1.4));
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(8, 6),
+      new THREE.ShadowMaterial({ color: 0x2f2a22, opacity: 0.18 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const boxMaterial = new THREE.MeshStandardMaterial({
+      color: 0xb2733e,
+      roughness: 0.76,
+      metalness: 0.02
+    });
+    const battenMaterial = new THREE.MeshStandardMaterial({
+      color: 0x8c4f27,
+      roughness: 0.82,
+      metalness: 0.02
+    });
+    const edgeMaterial = new THREE.LineBasicMaterial({
+      color: 0x5f3a20,
+      transparent: true,
+      opacity: 0.5
+    });
+
+    const boxGroup = new THREE.Group();
+    const edgeGroup = new THREE.Group();
+    scene.add(boxGroup);
+    scene.add(edgeGroup);
+
+    function clearGroup(group) {
+      while (group.children.length > 0) {
+        const child = group.children.pop();
+        if (child.geometry) child.geometry.dispose();
+        if (Array.isArray(child.material)) child.material.forEach((material) => material.dispose());
+      }
+    }
+
+    function addPart(sizeMm, positionMm, material, rotation = [0, 0, 0]) {
+      const geometry = new THREE.BoxGeometry(mm(sizeMm[0]), mm(sizeMm[2]), mm(sizeMm[1]));
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(mm(positionMm[0]), mm(positionMm[2]), mm(positionMm[1]));
+      mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      boxGroup.add(mesh);
+
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edgeMaterial);
+      edges.position.copy(mesh.position);
+      edges.rotation.copy(mesh.rotation);
+      edgeGroup.add(edges);
+    }
+
+    function addPanel(sizeMm, positionMm, rotation) {
+      addPart(sizeMm, positionMm, boxMaterial, rotation);
+    }
+
+    function addFrontBatten(positionMm) {
+      addPart([dims.battenWidth, dims.battenDepth, dims.height - dims.thickness], positionMm, battenMaterial);
+    }
+
+    function addSideBatten(positionMm) {
+      addPart([dims.battenDepth, dims.battenWidth, dims.height - dims.thickness], positionMm, battenMaterial);
+    }
+
+    function addTopCrossRail(positionMm) {
+      addPart([dims.battenWidth, dims.depth, dims.battenDepth], positionMm, battenMaterial);
+    }
+
+    function addCommonBattens() {
+      const w = dims.width;
+      const d = dims.depth;
+      const h = dims.height;
+      const battenZ = (dims.height - dims.thickness) / 2;
+      const t = dims.thickness;
+      const bd = dims.battenDepth;
+      const frontY = -d / 2 + t + bd / 2;
+      const leftX = -w / 2 + t + bd / 2;
+      const rightX = w / 2 - t - bd / 2;
+
+      for (let i = 0; i < dims.leftSideEndsAtTopPanel; i += 1) {
+        const y = -d / 2 + dims.plankWidth / 2 + i * (dims.plankWidth + dims.topGap);
+        addSideBatten([leftX, y, battenZ]);
+      }
+
+      for (let i = 0; i < dims.topPlankCount; i += 1) {
+        const y = -d / 2 + dims.plankWidth / 2 + i * (dims.plankWidth + dims.topGap);
+        addSideBatten([rightX, y, battenZ]);
+      }
+
+      for (let i = 1; i < 4; i += 1) {
+        const x = leftX + i * ((rightX - leftX) / 4);
+        addFrontBatten([x, frontY, battenZ]);
+      }
+    }
+
+    function addTopCrossRails() {
+      const w = dims.width;
+      const t = dims.thickness;
+      const bd = dims.battenDepth;
+      const leftX = -w / 2 + t + bd / 2;
+      const rightX = w / 2 - t - bd / 2;
+      const z = dims.height - dims.thickness - bd / 2;
+
+      for (let i = 1; i < 4; i += 1) {
+        const x = leftX + i * ((rightX - leftX) / 4);
+        addTopCrossRail([x, 0, z]);
+      }
+    }
+
+    function addRearTopSupport(slatWidth) {
+      const w = dims.width;
+      const d = dims.depth;
+      const h = dims.height;
+      const battenZ = (dims.height - dims.thickness) / 2;
+      const bd = dims.battenDepth;
+      const gap = (d - (dims.topPlankCount * slatWidth)) / (dims.topPlankCount - 1);
+      const rearTopY = -d / 2 + slatWidth / 2 + (dims.topPlankCount - 1) * (slatWidth + gap);
+      const rearTopBackEdgeY = rearTopY + slatWidth / 2;
+      const rearBattenY = rearTopBackEdgeY - bd / 2;
+      const leftX = -w / 2 + dims.thickness + bd / 2;
+      const rightX = w / 2 - dims.thickness - bd / 2;
+      const rearTopLeftSupportX = leftX + ((rightX - leftX) / 4);
+      const rearTopRightSupportX = w / 2 - dims.thickness - bd / 2;
+      addFrontBatten([rearTopLeftSupportX, rearBattenY, battenZ]);
+      addFrontBatten([rearTopRightSupportX - (bd + dims.battenWidth) / 2, rearBattenY, battenZ]);
+    }
+
+    function buildFinal() {
+      const w = dims.width;
+      const d = dims.depth;
+      const h = dims.height;
+      const t = dims.thickness;
+      const p = dims.plankWidth;
+      const frontGap = (h - (dims.frontPlankCount * p)) / (dims.frontPlankCount - 1);
+      const topGap = (d - (dims.topPlankCount * p)) / (dims.topPlankCount - 1);
+
+      addCommonBattens();
+      addTopCrossRails();
+
+      for (let i = 0; i < dims.frontPlankCount; i += 1) {
+        const z = p / 2 + i * (p + frontGap);
+        addPanel([w, t, p], [0, -d / 2 + t / 2, z]);
+      }
+
+      for (let i = 0; i < dims.sidePlankCount; i += 1) {
+        const z = p / 2 + i * (p + frontGap);
+        addPanel([t, dims.leftSideDepth, p], [-w / 2 + t / 2, -d / 2 + dims.leftSideDepth / 2, z]);
+        addPanel([t, d, p], [w / 2 - t / 2, 0, z]);
+      }
+
+      for (let i = 0; i < dims.topPlankCount; i += 1) {
+        const y = -d / 2 + p / 2 + i * (p + topGap);
+        const length = i === dims.topPlankCount - 1 ? w - dims.rearTopShorten : w;
+        const x = i === dims.topPlankCount - 1 ? dims.rearTopShorten / 2 : 0;
+        addPanel([length, p, t], [x, y, h - t / 2]);
+      }
+
+      addRearTopSupport(p);
+    }
+
+    function buildService() {
+      const w = dims.width;
+      const d = dims.depth;
+      const h = dims.height;
+      const t = dims.thickness;
+      const p = dims.altSlatWidth;
+      const frontGap = (h - (dims.frontPlankCount * p)) / (dims.frontPlankCount - 1);
+      const topGap = (d - (dims.topPlankCount * p)) / (dims.topPlankCount - 1);
+
+      addCommonBattens();
+
+      for (let i = 0; i < dims.frontPlankCount; i += 1) {
+        const z = p / 2 + i * (p + frontGap);
+        addPanel([w, t, p], [0, -d / 2 + t / 2, z]);
+      }
+
+      for (let i = 0; i < dims.sidePlankCount; i += 1) {
+        const z = p / 2 + i * (p + frontGap);
+        addPanel([t, dims.leftSideDepth, p], [-w / 2 + t / 2, -d / 2 + dims.leftSideDepth / 2, z]);
+        addPanel([t, d, p], [w / 2 - t / 2, 0, z]);
+      }
+
+      for (let i = 0; i < dims.topPlankCount; i += 1) {
+        const y = -d / 2 + p / 2 + i * (p + topGap);
+        const length = i === dims.topPlankCount - 1 ? w - dims.rearTopShorten : w;
+        const x = i === dims.topPlankCount - 1 ? dims.rearTopShorten / 2 : 0;
+        addPanel([length, p, t], [x, y, h - t / 2]);
+      }
+
+      addRearTopSupport(p);
+    }
+
+    function buildLouvered() {
+      const w = dims.width;
+      const d = dims.depth;
+      const h = dims.height;
+      const t = dims.thickness;
+      const p = dims.altSlatWidth;
+      const frontGap = (h - (dims.frontPlankCount * p)) / (dims.frontPlankCount - 1);
+      const topGap = (d - (dims.topPlankCount * p)) / (dims.topPlankCount - 1);
+      const angle = THREE.MathUtils.degToRad(32);
+
+      addCommonBattens();
+
+      for (let i = 0; i < dims.frontPlankCount; i += 1) {
+        const z = p / 2 + i * (p + frontGap);
+        addPanel([w, t, p], [0, -d / 2 + t / 2, z], [angle, 0, 0]);
+        addPanel([t, dims.leftSideDepth, p], [-w / 2 + t / 2, -d / 2 + dims.leftSideDepth / 2, z], [0, -angle, 0]);
+        addPanel([t, d, p], [w / 2 - t / 2, 0, z], [0, angle, 0]);
+      }
+
+      for (let i = 0; i < dims.topPlankCount; i += 1) {
+        const y = -d / 2 + p / 2 + i * (p + topGap);
+        const length = i === dims.topPlankCount - 1 ? w - dims.rearTopShorten : w;
+        const x = i === dims.topPlankCount - 1 ? dims.rearTopShorten / 2 : 0;
+        addPanel([length, p, t], [x, y, h - t / 2]);
+      }
+
+      addRearTopSupport(p);
+    }
+
+    function rebuild() {
+      clearGroup(boxGroup);
+      clearGroup(edgeGroup);
+
+      const design = document.querySelector("#designSelect").value;
+      if (design === "service") buildService();
+      else if (design === "louvered") buildLouvered();
+      else buildFinal();
+    }
+
+    function setTransparent(enabled) {
+      boxMaterial.transparent = enabled;
+      boxMaterial.opacity = enabled ? 0.42 : 1;
+      boxMaterial.depthWrite = !enabled;
+      boxMaterial.needsUpdate = true;
+    }
+
+    function resetCamera() {
+      camera.position.set(4.8, 3.0, 3.8);
+      controls.target.set(0, mm(dims.height) / 2, 0);
+      controls.update();
+    }
+
+    function resize() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false);
+    }
+
+    function animate() {
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    document.querySelector("#designSelect").addEventListener("change", rebuild);
+    document.querySelector("#transparentToggle").addEventListener("change", (event) => {
+      setTransparent(event.target.checked);
+    });
+    document.querySelector("#edgesToggle").addEventListener("change", (event) => {
+      edgeGroup.visible = event.target.checked;
+    });
+    document.querySelector("#resetView").addEventListener("click", resetCamera);
+    window.addEventListener("resize", resize);
+
+    rebuild();
+    resize();
+    animate();
+  </script>
+</body>
+</html>
