@@ -33,6 +33,18 @@ xcodebuild -project EEAccess.xcodeproj -scheme EEAccessWatchApp \
 cd TeslaKeyKit && swift test   # 184 protocol/crypto tests, no hardware needed
 ```
 
+## Releasing (git + Xcode Cloud)
+
+Now a git repo. The dev Mac is on **macOS 27 beta**, and App Store Connect
+rejects builds produced on a beta OS (ITMS-90111) even with the correct SDK —
+so release builds go through **Xcode Cloud** (Apple's release macOS/Xcode).
+`ci_scripts/ci_post_clone.sh` installs XcodeGen and regenerates the project on
+each Cloud build (`EEAccess.xcodeproj` is git-ignored; packages are vendored
+locally so no registry access is needed). Pick a **release** Xcode (26.x) in the
+workflow, never a beta. Full steps: `BrandAssets/XCODE_CLOUD_SETUP.md`. Local
+Xcode 26.5 GUI won't `open`-launch on the beta macOS (LS error -10664) — run the
+binary directly: `/Applications/Xcode.app/Contents/MacOS/Xcode &`.
+
 ## Targets (all versioned together via settings.base)
 
 | Target | Bundle ID | Notes |
