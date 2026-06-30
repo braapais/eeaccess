@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import StoreKit
 
@@ -17,11 +18,22 @@ final class EntitlementManager: ObservableObject {
     static let productID = "com.elbaeverywhere.eeaccess.lifetime"
     static let trialDuration: TimeInterval = 14 * 24 * 60 * 60   // 14 days
     private static let installDateKey = "EEAccess.installDate"
+    private static let compedKey = "EEAccess.compedUnlock"
+
+    /// SHA-256 (lowercase hex) of valid in-app access codes, matched against the
+    /// UPPERCASED entered code (so codes are case-insensitive). Stored as hashes
+    /// so the plaintext codes can't be pulled out of the binary with `strings`.
+    /// Add a code by hashing it: `printf '%s' "YOURCODE" | shasum -a 256`
+    private static let validCodeHashes: Set<String> = [
+        "2071224ff7727964c423b492f6c0f99f97a1cf3fd6991eb5b87fd98247a363f0", // EUNAOSEI
+    ]
 
     @Published private(set) var isPurchased: Bool = false
     @Published private(set) var product: Product?
     @Published private(set) var purchaseInFlight: Bool = false
     @Published private(set) var isSandboxBuild: Bool = false
+    /// Unlocked via an in-app access code (free comp, granted outside StoreKit).
+    @Published private(set) var isComped: Bool = false
     @Published var lastError: String?
 
     private(set) var installDate: Date
@@ -41,6 +53,7 @@ final class EntitlementManager: ObservableObject {
         // on the FIRST frame (no paywall flash). detectSandbox() then confirms
         // and refines it via AppTransaction once StoreKit is ready.
         isSandboxBuild = Self.hasSandboxReceipt
+        isComped = UserDefaults.standard.bool(forKey: Self.compedKey)
 
         transactionUpdatesTask = Task { [weak self] in
             for await result in Transaction.updates {
@@ -82,8 +95,24 @@ final class EntitlementManager: ObservableObject {
         #if DEBUG
         return true
         #else
-        return isPurchased || isInTrial || isSandboxBuild
+        return isPurchased || isComped || isInTrial || isSandboxBuild
         #endif
+    }
+
+    /// Redeems an in-app access code you hand out for free (e.g. promotional
+    /// codes for selected users). Unlocks the app directly, outside StoreKit —
+    /// for free comps, not for selling. The unlock persists on this device.
+    /// Returns `true` if the code was valid.
+    @discardableResult
+    func redeem(code: String) -> Bool {
+        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !normalized.isEmpty else { return false }
+        let hex = SHA256.hash(data: Data(normalized.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        guard Self.validCodeHashes.contains(hex) else { return false }
+        isComped = true
+        UserDefaults.standard.set(true, forKey: Self.compedKey)
+        return true
     }
 
     /// TestFlight and App Store review run against the *sandbox* App Store

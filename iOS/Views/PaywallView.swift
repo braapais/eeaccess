@@ -3,8 +3,12 @@ import StoreKit
 
 struct PaywallView: View {
     @EnvironmentObject private var entitlement: EntitlementManager
-    @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
     let trialEnded: Bool
+
+    @State private var showRedeem = false
+    @State private var redeemCode = ""
+    @State private var redeemMessage: String?
 
     var body: some View {
         ZStack {
@@ -22,6 +26,22 @@ struct PaywallView: View {
             .padding(.bottom, 32)
         }
         .task { await entitlement.loadProduct() }
+        .alert("Redeem Code", isPresented: $showRedeem) {
+            TextField("Code", text: $redeemCode)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+            Button("Redeem") {
+                if entitlement.redeem(code: redeemCode) {
+                    dismiss()   // closes the sheet if presented; the root paywall swaps automatically
+                } else {
+                    redeemMessage = "That code isn't valid."
+                }
+                redeemCode = ""
+            }
+            Button("Cancel", role: .cancel) { redeemCode = "" }
+        } message: {
+            Text("Enter your access code.")
+        }
     }
 
     // MARK: Subviews
@@ -110,16 +130,20 @@ struct PaywallView: View {
                     Task { await entitlement.restore() }
                 }
                 Button("Redeem Code") {
-                    // Promo codes for a non-consumable are redeemed in the App
-                    // Store app, not via the in-app offer-code sheet. Open
-                    // Apple's redeem screen so the user can enter their code.
-                    if let url = URL(string: "https://apps.apple.com/redeem") {
-                        openURL(url)
-                    }
+                    redeemMessage = nil
+                    redeemCode = ""
+                    showRedeem = true
                 }
             }
             .font(.footnote)
             .foregroundStyle(Color.white.opacity(0.7))
+
+            if let redeemMessage {
+                Text(redeemMessage)
+                    .font(.caption)
+                    .foregroundStyle(Color(red: 1.0, green: 0.55, blue: 0.55))
+                    .multilineTextAlignment(.center)
+            }
 
             if let err = entitlement.lastError {
                 Text(err)

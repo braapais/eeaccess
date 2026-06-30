@@ -94,8 +94,14 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
 
 - SwiftUI + SwiftData; services are `@MainActor @Observable` (newer) or
   `ObservableObject` (older — don't churn them).
-- Paywall: 14-day trial then one-time IAP (`EntitlementManager`). TestFlight /
-  review builds bypass it via the sandbox-receipt check — keep that.
+- Paywall: 14-day trial then one-time IAP (`EntitlementManager`). Unlock paths:
+  `isPurchased` (IAP) · `isComped` (in-app access code) · `isInTrial` ·
+  `isSandboxBuild` (TestFlight/review) · `#if DEBUG` (Xcode runs). Keep all of
+  these. **In-app access codes:** free comps redeemed via the "Redeem Code"
+  field (Apple offer/custom codes only work for subscriptions, and this app is a
+  non-consumable). Valid codes are stored as SHA-256 hashes in
+  `EntitlementManager.validCodeHashes`; add one with
+  `printf '%s' "CODE" | shasum -a 256`.
 - Watch barcode images are pre-rendered on iOS (CoreImage doesn't exist on
   watchOS).
 - Real-car testing is the only way to validate BLE flows; simulators can't do
