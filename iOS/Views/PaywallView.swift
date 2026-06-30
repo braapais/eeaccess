@@ -139,6 +139,10 @@ struct PaywallView: View {
             .font(.footnote)
             .foregroundStyle(Color.white.opacity(0.7))
 
+            Text("Have a code? Tap Redeem Code.")
+                .font(.caption2)
+                .foregroundStyle(Color.white.opacity(0.45))
+
             if let redeemMessage {
                 Text(redeemMessage)
                     .font(.caption)
