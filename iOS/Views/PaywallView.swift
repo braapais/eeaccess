@@ -179,3 +179,8 @@ struct PaywallView: View {
         }
     }
 }
+
+#Preview {
+    PaywallView(trialEnded: true)
+        .environmentObject(EntitlementManager())
+}
