@@ -78,7 +78,7 @@ struct PaywallView: View {
             Text(trialEnded ? "Trial ended" : "Unlock EEAccess")
                 .font(.system(size: 28, weight: .bold))
                 .foregroundStyle(.white)
-            Text("Your loyalty cards on your wrist — without your iPhone. One-time payment, no subscription.")
+            Text("Your Tesla key and every loyalty card — on your Apple Watch, no phone needed. One-time payment, no subscription.")
                 .font(.body)
                 .foregroundStyle(Color.white.opacity(0.75))
                 .multilineTextAlignment(.center)
@@ -87,8 +87,9 @@ struct PaywallView: View {
 
     private var features: some View {
         VStack(alignment: .leading, spacing: 10) {
-            bullet("Unlimited cards on iPhone and Apple Watch")
-            bullet("Standalone watch app — works without your phone")
+            bullet("Apple Watch as a Tesla key — lock, unlock, drive")
+            bullet("Every gym & loyalty card on your wrist")
+            bullet("Works without your phone — standalone watch app")
             bullet("No accounts, no tracking, no subscription")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
