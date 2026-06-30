@@ -22,15 +22,20 @@ Alternates:
 - `Apple Watch key + card wallet` (29)
 
 ## Promotional text (max 170 — editable anytime, no review)
-Your Apple Watch is now a Tesla key — lock, unlock and drive with no phone, no
-internet and no account. Plus every gym and loyalty card on your wrist, ready
-to scan.
+**Primary (168) — leads with the "no subscription" differentiator:**
+Finally — a Tesla key for your Apple Watch with no subscription. Lock, unlock and drive with no phone, internet or account. Pay once. Plus all your cards on your wrist.
 
-## Keywords (max 100, comma-separated, no spaces)
-tesla,watch key,car key,phone key,apple watch,unlock,bluetooth,ble,model y,cybertruck,wallet,loyalty,gym
+**Alternate (161) — leads with offline:**
+Turn your Apple Watch into a Tesla key — no phone, no internet, no account. Pay once, never a subscription. Your gym and loyalty cards ride along, ready to scan.
 
-(If "Tesla" is in the app name, drop it from keywords to save characters — Apple
-already indexes the title.)
+## Keywords (max 100, comma-separated, no spaces) — 100/100
+remote,fob,keyfob,car,ble,bluetooth,wallet,loyalty,gym,barcode,cybertruck,modely,model3,ev,scan,pass
+
+ASO logic: use **single words** — Apple auto-combines them into phrases ("car
+key", "key fob", "tesla remote"), so multi-word phrases just waste characters.
+No spaces. Words already in the title/subtitle (tesla, watch, key, unlock,
+phone) are indexed automatically, so they're dropped here to make room.
+"remote" deliberately targets the popular "Remote for Tesla" competitor searches.
 
 ---
 
@@ -79,6 +84,19 @@ compatibility.
 
 ## What's New (release notes, max 4000)
 
+### 2.1
+Your Apple Watch is a Tesla key — and getting full access just got easier.
+
+• NEW: Redeem an access code right in the app. Tap "Redeem Code" on the unlock
+  screen, enter your code, and you're in — instant full access.
+• Lock, unlock, and drive your Tesla straight from your wrist — no phone, no
+  internet, no account.
+• Every gym and loyalty card on your Apple Watch, ready to scan.
+• Refinements and polish throughout.
+
+One-time payment. No subscription, ever.
+
+### 2.0 (Tesla key launch)
 NEW: Your Apple Watch is now a Tesla key.
 
 • Lock, unlock, and drive your Tesla right from your wrist — no phone, no
