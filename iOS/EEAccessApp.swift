@@ -41,6 +41,7 @@ struct EEAccessApp: App {
                 await entitlement.loadProduct()
                 await ShareInbox.processPendingShares(container: container, sync: sync)
                 await syncTeslaSession()
+                syncRelaySettings()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
@@ -48,11 +49,24 @@ struct EEAccessApp: App {
                         await entitlement.refreshEntitlement()
                         await ShareInbox.processPendingShares(container: container, sync: sync)
                         await syncTeslaSession()
+                        syncRelaySettings()
                     }
                 }
             }
         }
         .modelContainer(container)
+    }
+
+    /// Pushes the relay-server settings to the watch so it can route cloud cars
+    /// through the server too.
+    private func syncRelaySettings() {
+        let store = RelayServerStore()
+        sync.sendRelaySettings(
+            enabled: store.enabled,
+            baseURL: store.baseURL,
+            username: store.username,
+            password: store.password
+        )
     }
 
     /// Pushes a fresh Fleet access token + region host to the watch so its

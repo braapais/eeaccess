@@ -5,6 +5,7 @@ import SwiftUI
 /// fires even when the phone/watch is offline in a garage.
 struct RelayServerView: View {
     @Environment(RelayServerClient.self) private var relay
+    @EnvironmentObject private var sync: PhoneSyncService
 
     private let store = RelayServerStore()
 
@@ -64,6 +65,8 @@ struct RelayServerView: View {
         store.username = username
         store.password = password
         store.enabled = enabled
+        relay.reloadSettings()
+        sync.sendRelaySettings(enabled: enabled, baseURL: store.baseURL, username: username, password: password)
         saved = true
     }
     private func test() async {

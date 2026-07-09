@@ -10,6 +10,7 @@ struct WatchTeslaVehicleView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(TeslaKeyService.self) private var key
     @Environment(WatchTeslaCloud.self) private var cloud
+    @Environment(RelayServerClient.self) private var relay
 
     let vehicle: TeslaVehicle
 
@@ -29,10 +30,126 @@ struct WatchTeslaVehicleView: View {
         }
     }
 
+    /// Cloud cars: via the relay server if configured, else directly over the
+    /// synced Fleet session.
+    @ViewBuilder
+    private var cloudControls: some View {
+        if relay.isActive {
+            relayControls
+        } else {
+            directCloudControls
+        }
+    }
+
+    /// Route commands through the self-hosted relay server (Basic auth). Its
+    /// scheduled Unlock+Drive runs server-side, so it fires even if the watch
+    /// is offline in the garage.
+    @ViewBuilder
+    private var relayControls: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                Button {
+                    Task { await relay.unlock(vin: vehicle.vin) }
+                } label: {
+                    Label("Unlock", systemImage: "lock.open.fill").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+
+                Button {
+                    Task { await relay.lock(vin: vehicle.vin) }
+                } label: {
+                    Label("Lock", systemImage: "lock.fill").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    Task { await relay.drive(vin: vehicle.vin) }
+                } label: {
+                    Label("Start Drive", systemImage: "steeringwheel").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.blue)
+
+                if relay.pendingSchedule != nil {
+                    Button(role: .destructive) {
+                        Task { await relay.cancelSchedule() }
+                    } label: {
+                        Label("Cancel scheduled", systemImage: "xmark.circle").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button {
+                        Task { await relay.scheduleUnlockDrive(vin: vehicle.vin, delay: 60) }
+                    } label: {
+                        Label("Unlock & Drive in 60s", systemImage: "timer").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                }
+
+                Button {
+                    Task { await relay.wake(vin: vehicle.vin) }
+                } label: {
+                    Label("Wake", systemImage: "sun.max").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                HStack {
+                    Button {
+                        Task { await relay.climateOn(vin: vehicle.vin) }
+                    } label: {
+                        Label("Climate", systemImage: "fan").frame(maxWidth: .infinity)
+                    }
+                    Button {
+                        Task { await relay.climateOff(vin: vehicle.vin) }
+                    } label: {
+                        Label("Off", systemImage: "fan.slash").frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .font(.caption2)
+
+                Button {
+                    Task { await relay.refreshState(vin: vehicle.vin) }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .font(.caption2)
+
+                if let snap = relay.snapshot {
+                    HStack(spacing: 10) {
+                        if let b = snap.batteryLevel { Text("\(b)%") }
+                        if let l = snap.locked { Text(l ? "Locked" : "Unlocked") }
+                        if let o = snap.online { Text(o ? "Online" : "Asleep") }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+                if relay.pendingSchedule != nil {
+                    Label("Scheduled on server", systemImage: "checkmark.circle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let status = relay.status {
+                    Text(status).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                if let err = relay.lastError {
+                    Text(err).font(.caption2).foregroundStyle(.red).multilineTextAlignment(.center)
+                }
+            }
+            .padding(.horizontal, 4)
+            .disabled(relay.isBusy)
+            .overlay { if relay.isBusy { ProgressView() } }
+        }
+        .task { await relay.refreshSchedules() }
+    }
+
     /// Pre-2021 S/X have no BLE phone key — they're driven over the internet
     /// via the Fleet session the iPhone synced (unsigned commands).
     @ViewBuilder
-    private var cloudControls: some View {
+    private var directCloudControls: some View {
         ScrollView {
             VStack(spacing: 10) {
                 if !cloud.hasSession {

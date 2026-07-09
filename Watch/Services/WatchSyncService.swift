@@ -23,6 +23,9 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
     @Published var lastError: String?
     /// Latest Fleet session pushed from the iPhone (nil until first sync).
     @Published var teslaSession: TeslaCloudSession?
+    /// Bumped when relay-server settings arrive from the phone, so the client
+    /// can reload them.
+    @Published var relaySettingsVersion = 0
 
     private let session: WCSession = .default
     private let container: ModelContainer
@@ -203,6 +206,19 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
             } catch {
                 lastError = "tesla delete save: \(error.localizedDescription)"
             }
+        case "relay-settings":
+            guard let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                lastError = "relay-settings: read failed"
+                return
+            }
+            let store = RelayServerStore()
+            store.enabled = obj["enabled"] as? Bool ?? false
+            store.baseURL = obj["baseURL"] as? String ?? ""
+            store.username = obj["username"] as? String ?? ""
+            store.password = obj["password"] as? String ?? ""
+            relaySettingsVersion += 1
+            lastError = nil
         default:
             lastError = "file: unsupported action \(action)"
         }

@@ -7,6 +7,7 @@ struct EEAccessWatchApp: App {
     @StateObject private var sync: WatchSyncService
     @State private var keyService = TeslaKeyService()
     @State private var cloud = WatchTeslaCloud()
+    @State private var relay = RelayServerClient()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -26,9 +27,13 @@ struct EEAccessWatchApp: App {
                 .environmentObject(sync)
                 .environment(keyService)
                 .environment(cloud)
+                .environment(relay)
                 .task(id: sync.teslaSession) {
                     applySession()
                     await cloud.ensureFreshToken()
+                }
+                .onChange(of: sync.relaySettingsVersion) { _, _ in
+                    relay.reloadSettings()
                 }
                 .onChange(of: scenePhase) { _, phase in
                     // Opening the watch app refreshes the token directly over

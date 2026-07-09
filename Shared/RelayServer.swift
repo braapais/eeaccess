@@ -95,7 +95,14 @@ final class RelayServerClient {
 
     let store = RelayServerStore()
 
-    var isActive: Bool { store.isActive }
+    /// Observable mirror of the store's active flag, so SwiftUI reacts when
+    /// settings are edited (iOS) or synced in (watch). Refresh via
+    /// `reloadSettings()` after changing the store.
+    private(set) var isActive = false
+
+    init() { reloadSettings() }
+
+    func reloadSettings() { isActive = store.isActive }
 
     // MARK: - Commands
 

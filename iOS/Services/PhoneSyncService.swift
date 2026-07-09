@@ -166,6 +166,23 @@ final class PhoneSyncService: NSObject, ObservableObject, WCSessionDelegate {
         try? session.updateApplicationContext(context)
     }
 
+    /// Syncs the relay-server settings (URL/username/password/enabled) to the
+    /// watch so its cloud cars can go through the server too. Sent as a file
+    /// transfer (queued, delivered when the watch app next opens).
+    func sendRelaySettings(enabled: Bool, baseURL: String, username: String, password: String) {
+        guard session.activationState == .activated else { return }
+        let payload: [String: Any] = [
+            "enabled": enabled,
+            "baseURL": baseURL,
+            "username": username,
+            "password": password,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("eeaccess-relay.json")
+        do { try data.write(to: url, options: .atomic) } catch { return }
+        session.transferFile(url, metadata: ["action": "relay-settings"])
+    }
+
     /// Tells the watch to forget a Tesla vehicle's metadata. Does not remove
     /// the key from the watch Keychain or the car.
     func sendTeslaVehicleDelete(vin: String) {

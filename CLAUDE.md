@@ -139,7 +139,12 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   active (`relay.isActive`), iOS per-car cloud controls route through it
   (`RelayServerView` configures it), and `scheduleUnlockDrive` runs
   **server-side** (`POST /vehicles/:vin/schedule`) so it fires even if the
-  device goes offline in a garage. Watch relay + settings sync = pending phase.
+  device goes offline in a garage. Settings sync phone→watch
+  (`PhoneSyncService.sendRelaySettings` file transfer → `WatchSyncService`
+  writes `RelayServerStore`, bumps `relaySettingsVersion` → `reloadSettings()`);
+  when active, the watch's cloud car routes through the relay too
+  (`WatchTeslaVehicleView.relayControls`) — simpler than the direct token-sync
+  path (just Basic auth, no token refresh on the watch).
 - **Phone↔watch:** VIN/name/role sync over WatchConnectivity
   (`tesla-upsert`/`tesla-delete` file transfers). Watch preserves `isPaired`
   and (once paired) `keyRoleRaw` — the role is baked into the enrolled key.
