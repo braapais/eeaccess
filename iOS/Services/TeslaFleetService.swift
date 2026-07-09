@@ -112,6 +112,13 @@ final class TeslaFleetService {
         await command(vin: vin, action: "auto_conditioning_stop", label: "Stopping climate…", auth: auth, unsigned: unsigned)
     }
 
+    /// Enables keyless driving (`remote_start_drive`) — the car allows driving
+    /// for ~2 minutes; press the brake within the window. Cloud equivalent of
+    /// the watch's Start Drive.
+    func startDrive(vin: String, auth: TeslaFleetAuth, unsigned: Bool = false) async {
+        await command(vin: vin, action: "remote_start_drive", label: "Enabling drive…", auth: auth, unsigned: unsigned)
+    }
+
     private func command(vin: String, action: String, label: String, auth: TeslaFleetAuth, unsigned: Bool) async {
         await run(label) {
             // `command: true` routes to the signing proxy; for pre-2021 cars we

@@ -197,6 +197,13 @@ struct TeslaVehicleFormView: View {
                 }
             }
             .buttonStyle(.bordered)
+            Button {
+                Task { await fleet.startDrive(vin: vin, auth: fleetAuth, unsigned: unsigned) }
+            } label: {
+                Label("Start Drive", systemImage: "steeringwheel").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(.blue)
             HStack {
                 Button {
                     Task { await fleet.climateOn(vin: vin, auth: fleetAuth, unsigned: unsigned) }
