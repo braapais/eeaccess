@@ -61,6 +61,23 @@ struct WatchTeslaVehicleView: View {
                     .buttonStyle(.bordered)
                     .tint(.blue)
 
+                    if let secs = cloud.scheduledSeconds {
+                        Button(role: .destructive) {
+                            cloud.cancelSchedule()
+                        } label: {
+                            Label("Cancel (\(secs)s)", systemImage: "xmark.circle").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Button {
+                            cloud.scheduleUnlockDrive(vin: vehicle.vin, unsigned: true, delay: 60)
+                        } label: {
+                            Label("Unlock & Drive in 60s", systemImage: "timer").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.orange)
+                    }
+
                     Button {
                         Task { await cloud.wake(vin: vehicle.vin) }
                     } label: {

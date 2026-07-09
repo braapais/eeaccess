@@ -140,6 +140,48 @@ final class WatchTeslaCloud {
     func climateOn(vin: String, unsigned: Bool) async { await command(vin, "auto_conditioning_start", "Starting climate…", unsigned) }
     func climateOff(vin: String, unsigned: Bool) async { await command(vin, "auto_conditioning_stop", "Stopping climate…", unsigned) }
 
+    // MARK: - Scheduled (garage dead-zone) unlock + drive
+
+    /// Seconds left on a scheduled Unlock & Drive, or nil if none is pending.
+    private(set) var scheduledSeconds: Int?
+    private var scheduleTask: Task<Void, Never>?
+
+    /// Counts down `delay` seconds, then sends Unlock + Start Drive. Use it
+    /// while you still have signal (before walking into a no-signal garage) so
+    /// the car is unlocked and drive-enabled when you arrive. Retries a few
+    /// times if the network blips at fire time.
+    func scheduleUnlockDrive(vin: String, unsigned: Bool = true, delay: Int = 60) {
+        cancelSchedule()
+        scheduleTask = Task { [weak self] in
+            guard let self else { return }
+            var remaining = delay
+            while remaining > 0 {
+                self.scheduledSeconds = remaining
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { self.scheduledSeconds = nil; return }
+                remaining -= 1
+            }
+            self.scheduledSeconds = 0
+            await self.fireUnlockDrive(vin: vin, unsigned: unsigned)
+            self.scheduledSeconds = nil
+        }
+    }
+
+    func cancelSchedule() {
+        scheduleTask?.cancel()
+        scheduleTask = nil
+        scheduledSeconds = nil
+    }
+
+    private func fireUnlockDrive(vin: String, unsigned: Bool) async {
+        for attempt in 0..<3 {
+            await unlock(vin: vin, unsigned: unsigned)
+            await startDrive(vin: vin, unsigned: unsigned)
+            if lastError == nil { return }
+            if attempt < 2 { try? await Task.sleep(for: .seconds(5)) }
+        }
+    }
+
     private func command(_ vin: String, _ action: String, _ label: String, _ unsigned: Bool) async {
         // Pre-2021 cars accept unsigned commands over the plain Fleet host,
         // which is the only path available on the watch (no signing proxy).

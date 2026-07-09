@@ -204,6 +204,28 @@ struct TeslaVehicleFormView: View {
             }
             .buttonStyle(.bordered)
             .tint(.blue)
+
+            if let secs = fleet.scheduledSeconds {
+                Button(role: .destructive) {
+                    fleet.cancelSchedule()
+                } label: {
+                    Label("Cancel — Unlock & Drive in \(secs)s", systemImage: "xmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button {
+                    fleet.scheduleUnlockDrive(vin: vin, auth: fleetAuth, unsigned: unsigned, delay: 60)
+                } label: {
+                    Label("Unlock & Drive in 60s", systemImage: "timer").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+            }
+            Text("Tap while you still have signal, then walk to the car — it sends Unlock + Start Drive in 60s. Keep this screen open.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
             HStack {
                 Button {
                     Task { await fleet.climateOn(vin: vin, auth: fleetAuth, unsigned: unsigned) }

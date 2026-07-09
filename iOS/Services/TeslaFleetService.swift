@@ -119,6 +119,43 @@ final class TeslaFleetService {
         await command(vin: vin, action: "remote_start_drive", label: "Enabling drive…", auth: auth, unsigned: unsigned)
     }
 
+    // MARK: - Scheduled (garage dead-zone) unlock + drive
+
+    /// Seconds left on a scheduled Unlock & Drive, or nil if none is pending.
+    private(set) var scheduledSeconds: Int?
+    private var scheduleTask: Task<Void, Never>?
+
+    /// Counts down `delay` seconds, then sends Unlock + Start Drive — trigger it
+    /// while you still have signal so the car is ready when you reach a
+    /// no-signal garage. Retries a few times if the network blips at fire time.
+    func scheduleUnlockDrive(vin: String, auth: TeslaFleetAuth, unsigned: Bool, delay: Int = 60) {
+        cancelSchedule()
+        scheduleTask = Task { [weak self] in
+            guard let self else { return }
+            var remaining = delay
+            while remaining > 0 {
+                self.scheduledSeconds = remaining
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { self.scheduledSeconds = nil; return }
+                remaining -= 1
+            }
+            self.scheduledSeconds = 0
+            for attempt in 0..<3 {
+                await self.unlock(vin: vin, auth: auth, unsigned: unsigned)
+                await self.startDrive(vin: vin, auth: auth, unsigned: unsigned)
+                if self.lastError == nil { break }
+                if attempt < 2 { try? await Task.sleep(for: .seconds(5)) }
+            }
+            self.scheduledSeconds = nil
+        }
+    }
+
+    func cancelSchedule() {
+        scheduleTask?.cancel()
+        scheduleTask = nil
+        scheduledSeconds = nil
+    }
+
     private func command(vin: String, action: String, label: String, auth: TeslaFleetAuth, unsigned: Bool) async {
         await run(label) {
             // `command: true` routes to the signing proxy; for pre-2021 cars we

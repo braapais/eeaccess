@@ -125,6 +125,12 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   it only asks to reopen the iPhone if the refresh token is revoked. Those
   secrets live device-only (synced over the encrypted WC channel). Still needs
   the Client ID + partner domain registration to function.
+- **Garage dead-zone (scheduled unlock+drive):** `scheduleUnlockDrive(vin:…,
+  delay: 60)` on both `TeslaFleetService` (phone) and `WatchTeslaCloud` (watch)
+  counts down then sends Unlock + Start Drive (retries 3× if the network blips)
+  — trigger it while you still have signal so the car is ready when you reach a
+  no-signal garage. `scheduledSeconds` drives the live countdown/cancel UI; runs
+  only while the app is foregrounded (no background execution guarantee).
 - **Phone↔watch:** VIN/name/role sync over WatchConnectivity
   (`tesla-upsert`/`tesla-delete` file transfers). Watch preserves `isPaired`
   and (once paired) `keyRoleRaw` — the role is baked into the enrolled key.
