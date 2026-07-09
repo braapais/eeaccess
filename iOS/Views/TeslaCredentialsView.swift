@@ -24,6 +24,11 @@ struct TeslaCredentialsView: View {
                 Text("Cloud control uses your own Tesla developer app, so your API usage is billed to you — not shared. Create one at developer.tesla.com, then paste its Client ID below. The Apple Watch Bluetooth key needs none of this.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                NavigationLink {
+                    TeslaCredentialsHelpView()
+                } label: {
+                    Label("How do I get these?", systemImage: "questionmark.circle")
+                }
                 Link("Open developer.tesla.com", destination: URL(string: "https://developer.tesla.com")!)
             }
 
