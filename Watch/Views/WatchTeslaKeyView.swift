@@ -28,7 +28,7 @@ struct WatchTeslaKeyView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(vehicle.displayName)
                             .font(.headline)
-                        Text(vehicle.isPaired ? "Paired" : "Pending pairing")
+                        Text(subtitle(for: vehicle))
                             .font(.caption2)
                             .foregroundStyle(vehicle.isPaired ? .green : .secondary)
                     }
@@ -38,6 +38,13 @@ struct WatchTeslaKeyView: View {
                 Label("Add another car", systemImage: "plus.circle")
                     .font(.caption)
             }
+        }
+    }
+
+    private func subtitle(for vehicle: TeslaVehicle) -> String {
+        switch vehicle.accessMode {
+        case .cloud: "Cloud — control from iPhone"
+        case .bluetoothKey: vehicle.isPaired ? "Paired" : "Pending pairing"
         }
     }
 

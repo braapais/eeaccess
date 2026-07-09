@@ -14,7 +14,9 @@ struct WatchTeslaVehicleView: View {
 
     var body: some View {
         Group {
-            if vehicle.isPaired {
+            if vehicle.accessMode == .cloud {
+                cloudInfo
+            } else if vehicle.isPaired {
                 controls
             } else {
                 finishSetupPrompt
@@ -24,6 +26,23 @@ struct WatchTeslaVehicleView: View {
         .onChange(of: scenePhase) { _, phase in
             key.presence.setAppActive(phase == .active)
         }
+    }
+
+    /// Pre-2021 S/X have no BLE phone key, and the watch has no Fleet client —
+    /// they're driven from the iPhone over the internet.
+    private var cloudInfo: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "cloud")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(vehicle.displayName)
+                .font(.headline)
+            Text("Cloud car (pre-2021 Model S/X). Lock, unlock and climate are controlled from EEAccess on your iPhone, using your Tesla account.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding()
     }
 
     private var finishSetupPrompt: some View {

@@ -96,6 +96,15 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   configured") + `TeslaFleetService` (state/wake direct; lock/unlock/climate
   need `commandBaseURL` pointed at a running `tesla-http-proxy`, because
   2021+ vehicles reject unsigned commands).
+- **Cloud-only vehicles (pre-2021 S/X):** `TeslaVehicle.accessMode`
+  (`bluetoothKey` | `cloud`, synced phone→watch in the `tesla-upsert` payload).
+  Pre-2021 Model S/X have **no BLE phone key**, so they're `cloud` mode:
+  controlled from the iPhone via Fleet API using Tesla-account OAuth. Tesla
+  **exempts pre-2021 S/X from signed commands**, so `TeslaFleetService`'s
+  `unsigned:` flag sends lock/unlock/climate straight to the Fleet host (no
+  proxy). The watch has no Fleet client — cloud cars show a "control from
+  iPhone" screen there, no pairing. Still needs the Client ID + partner domain
+  registration to function.
 - **Phone↔watch:** VIN/name/role sync over WatchConnectivity
   (`tesla-upsert`/`tesla-delete` file transfers). Watch preserves `isPaired`
   and (once paired) `keyRoleRaw` — the role is baked into the enrolled key.

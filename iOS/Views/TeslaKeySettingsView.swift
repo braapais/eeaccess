@@ -51,7 +51,15 @@ struct TeslaKeySettingsView: View {
                     TeslaVehicleFormView(vehicle: vehicle)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(vehicle.displayName)
+                        HStack {
+                            Text(vehicle.displayName)
+                            Spacer()
+                            Label(vehicle.accessMode == .cloud ? "Cloud" : "Watch key",
+                                  systemImage: vehicle.accessMode == .cloud ? "cloud" : "applewatch")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .labelStyle(.titleAndIcon)
+                        }
                         Text(vehicle.vin)
                             .font(.caption)
                             .monospaced()
@@ -116,6 +124,9 @@ struct TeslaKeySettingsView: View {
                     }
                 }
                 if let vin = cloudVehicle?.vin {
+                    // Pre-2021 S/X accept unsigned commands (no proxy); 2021+
+                    // need the signing proxy at commandBaseURL.
+                    let unsigned = cloudVehicle?.accessMode == .cloud
                     if let snap = fleet.snapshot {
                         snapshotRows(snap)
                     }
@@ -131,12 +142,12 @@ struct TeslaKeySettingsView: View {
                     }
                     HStack {
                         Button {
-                            Task { await fleet.unlock(vin: vin, auth: fleetAuth) }
+                            Task { await fleet.unlock(vin: vin, auth: fleetAuth, unsigned: unsigned) }
                         } label: {
                             Label("Unlock", systemImage: "lock.open").frame(maxWidth: .infinity)
                         }
                         Button {
-                            Task { await fleet.lock(vin: vin, auth: fleetAuth) }
+                            Task { await fleet.lock(vin: vin, auth: fleetAuth, unsigned: unsigned) }
                         } label: {
                             Label("Lock", systemImage: "lock").frame(maxWidth: .infinity)
                         }
@@ -144,12 +155,12 @@ struct TeslaKeySettingsView: View {
                     .buttonStyle(.bordered)
                     HStack {
                         Button {
-                            Task { await fleet.climateOn(vin: vin, auth: fleetAuth) }
+                            Task { await fleet.climateOn(vin: vin, auth: fleetAuth, unsigned: unsigned) }
                         } label: {
                             Label("Climate On", systemImage: "fan").frame(maxWidth: .infinity)
                         }
                         Button {
-                            Task { await fleet.climateOff(vin: vin, auth: fleetAuth) }
+                            Task { await fleet.climateOff(vin: vin, auth: fleetAuth, unsigned: unsigned) }
                         } label: {
                             Label("Off", systemImage: "fan.slash").frame(maxWidth: .infinity)
                         }

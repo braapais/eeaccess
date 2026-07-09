@@ -9,6 +9,11 @@ import Observation
 /// signed. Reading state and waking work against Fleet API directly; lock /
 /// unlock / climate are POSTed to `TeslaFleetConfig.commandBaseURL`, which
 /// must point at Tesla's `tesla-http-proxy` for those to succeed.
+///
+/// Pre-2021 Model S/X are the exception: Tesla exempts them from the signed
+/// command protocol, so passing `unsigned: true` sends lock/unlock/climate
+/// straight to the Fleet API host — no proxy needed. That is the (only) way to
+/// reach those cars, which have no BLE phone key.
 @MainActor
 @Observable
 final class TeslaFleetService {
@@ -64,25 +69,32 @@ final class TeslaFleetService {
         }
     }
 
-    func lock(vin: String, auth: TeslaFleetAuth) async {
-        await command(vin: vin, action: "door_lock", label: "Locking…", auth: auth)
+    /// - Parameter unsigned: pre-2021 Model S/X accept plain unsigned commands,
+    ///   so we send them straight to the Fleet API and skip the signing proxy.
+    ///   2021+ cars must be signed, so those route through
+    ///   `TeslaFleetConfig.commandBaseURL`.
+    func lock(vin: String, auth: TeslaFleetAuth, unsigned: Bool = false) async {
+        await command(vin: vin, action: "door_lock", label: "Locking…", auth: auth, unsigned: unsigned)
     }
 
-    func unlock(vin: String, auth: TeslaFleetAuth) async {
-        await command(vin: vin, action: "door_unlock", label: "Unlocking…", auth: auth)
+    func unlock(vin: String, auth: TeslaFleetAuth, unsigned: Bool = false) async {
+        await command(vin: vin, action: "door_unlock", label: "Unlocking…", auth: auth, unsigned: unsigned)
     }
 
-    func climateOn(vin: String, auth: TeslaFleetAuth) async {
-        await command(vin: vin, action: "auto_conditioning_start", label: "Starting climate…", auth: auth)
+    func climateOn(vin: String, auth: TeslaFleetAuth, unsigned: Bool = false) async {
+        await command(vin: vin, action: "auto_conditioning_start", label: "Starting climate…", auth: auth, unsigned: unsigned)
     }
 
-    func climateOff(vin: String, auth: TeslaFleetAuth) async {
-        await command(vin: vin, action: "auto_conditioning_stop", label: "Stopping climate…", auth: auth)
+    func climateOff(vin: String, auth: TeslaFleetAuth, unsigned: Bool = false) async {
+        await command(vin: vin, action: "auto_conditioning_stop", label: "Stopping climate…", auth: auth, unsigned: unsigned)
     }
 
-    private func command(vin: String, action: String, label: String, auth: TeslaFleetAuth) async {
+    private func command(vin: String, action: String, label: String, auth: TeslaFleetAuth, unsigned: Bool) async {
         await run(label) {
-            _ = try await self.post("/api/1/vehicles/\(vin)/command/\(action)", auth: auth, command: true)
+            // `command: true` routes to the signing proxy; for pre-2021 cars we
+            // pass `command: false` to hit the Fleet API host directly, which
+            // accepts the unsigned command.
+            _ = try await self.post("/api/1/vehicles/\(vin)/command/\(action)", auth: auth, command: !unsigned)
         }
     }
 

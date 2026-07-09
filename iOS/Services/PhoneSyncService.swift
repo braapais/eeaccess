@@ -120,12 +120,13 @@ final class PhoneSyncService: NSObject, ObservableObject, WCSessionDelegate {
     /// the watch can pair as a BLE key without the user typing the VIN on the
     /// wrist. Only identity fields travel — the watch keeps its own BLE
     /// pairing status and private key locally.
-    func sendTeslaVehicle(vin: String, displayName: String, keyRoleRaw: String) {
+    func sendTeslaVehicle(vin: String, displayName: String, keyRoleRaw: String, accessMode: String) {
         guard session.activationState == .activated else { return }
         let payload: [String: Any] = [
             "vin": vin,
             "displayName": displayName,
             "keyRoleRaw": keyRoleRaw,
+            "accessMode": accessMode,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         let url = FileManager.default.temporaryDirectory

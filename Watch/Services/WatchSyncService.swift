@@ -147,8 +147,9 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
             }
             let name = dict["displayName"] as? String ?? "Tesla"
             let role = dict["keyRoleRaw"] as? String ?? "driver"
+            let accessMode = dict["accessMode"] as? String ?? TeslaAccessMode.bluetoothKey.rawValue
             do {
-                try upsertTeslaVehicle(vin: vin, name: name, role: role, context: context)
+                try upsertTeslaVehicle(vin: vin, name: name, role: role, accessMode: accessMode, context: context)
                 lastError = nil
             } catch {
                 lastError = "tesla upsert save: \(error.localizedDescription)"
@@ -174,15 +175,17 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
     /// Once paired, `keyRoleRaw` is also preserved: the role is baked into the
     /// key enrolled on the car, so a phone-side change can't take effect
     /// without re-pairing — overwriting the label would just misreport it.
-    private func upsertTeslaVehicle(vin: String, name: String, role: String, context: ModelContext) throws {
+    private func upsertTeslaVehicle(vin: String, name: String, role: String, accessMode: String, context: ModelContext) throws {
+        let mode = TeslaAccessMode(rawValue: accessMode) ?? .bluetoothKey
         let descriptor = FetchDescriptor<TeslaVehicle>(predicate: #Predicate { $0.vin == vin })
         if let existing = try context.fetch(descriptor).first {
             existing.displayName = name
+            existing.accessMode = mode
             if !existing.isPaired {
                 existing.keyRoleRaw = role
             }
         } else {
-            context.insert(TeslaVehicle(vin: vin, displayName: name, isPaired: false, keyRoleRaw: role))
+            context.insert(TeslaVehicle(vin: vin, displayName: name, isPaired: false, keyRoleRaw: role, accessMode: mode))
         }
         try context.save()
     }

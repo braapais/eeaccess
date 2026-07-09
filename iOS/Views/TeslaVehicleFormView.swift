@@ -14,6 +14,7 @@ struct TeslaVehicleFormView: View {
     @State private var vin = ""
     @State private var name = ""
     @State private var role = "driver"
+    @State private var accessMode: TeslaAccessMode = .bluetoothKey
     @State private var savedNote: String?
 
     // VINs never contain I, O, or Q — strip them along with separators.
@@ -34,11 +35,18 @@ struct TeslaVehicleFormView: View {
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                 TextField("Name", text: $name)
-                Picker("Key role", selection: $role) {
-                    Text("Driver").tag("driver")
-                    Text("Owner").tag("owner")
+                Picker("Access", selection: $accessMode) {
+                    ForEach(TeslaAccessMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
                 }
-                .pickerStyle(.segmented)
+                if accessMode == .bluetoothKey {
+                    Picker("Key role", selection: $role) {
+                        Text("Driver").tag("driver")
+                        Text("Owner").tag("owner")
+                    }
+                    .pickerStyle(.segmented)
+                }
                 Button {
                     save()
                 } label: {
@@ -56,6 +64,11 @@ struct TeslaVehicleFormView: View {
                 if let savedNote {
                     Text(savedNote).font(.footnote).foregroundStyle(.green)
                 }
+                Text(accessMode == .cloud
+                     ? "Cloud car (pre-2021 Model S/X): controlled from iPhone over the internet using your Tesla account — connect it below. No in-car pairing, and it won't appear as a Bluetooth key on the watch."
+                     : "Bluetooth key: pair on your Apple Watch in the car with your Tesla key card. Works with no account and no internet. For Model 3/Y, Cybertruck, and 2021 or newer Model S/X.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
             if vehicle != nil {
                 Section {
@@ -76,6 +89,7 @@ struct TeslaVehicleFormView: View {
                 vin = vehicle.vin
                 name = vehicle.displayName
                 role = vehicle.keyRoleRaw
+                accessMode = vehicle.accessMode
             } else if name.isEmpty {
                 name = "Tesla"
             }
@@ -92,14 +106,18 @@ struct TeslaVehicleFormView: View {
         target.vin = cleanVIN
         target.displayName = name.isEmpty ? "Tesla" : name
         target.keyRoleRaw = role
+        target.accessMode = accessMode
         if vehicle == nil { context.insert(target) }
         try? context.save()
         sync.sendTeslaVehicle(
             vin: target.vin,
             displayName: target.displayName,
-            keyRoleRaw: target.keyRoleRaw
+            keyRoleRaw: target.keyRoleRaw,
+            accessMode: target.accessModeRaw
         )
-        savedNote = "Saved & synced to your Apple Watch"
+        savedNote = accessMode == .cloud
+            ? "Saved & synced. Connect your Tesla account below to control it."
+            : "Saved & synced to your Apple Watch"
     }
 
     private func remove() {
