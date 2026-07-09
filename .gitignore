@@ -41,4 +41,5 @@ tesla-fleet/
 
 # Server secrets / deps — never commit
 server/config.json
+server/godaddy.env
 server/node_modules/
