@@ -38,3 +38,7 @@ _xcode_backup_*/
 
 # Tesla Fleet partner keys — never commit (esp. the private key)
 tesla-fleet/
+
+# Server secrets / deps — never commit
+server/config.json
+server/node_modules/

@@ -1,0 +1,9 @@
+{
+  "clientId": "YOUR_TESLA_CLIENT_ID",
+  "clientSecret": "YOUR_TESLA_CLIENT_SECRET",
+  "refreshToken": "",
+  "regionBase": "https://fleet-api.prd.eu.vn.cloud.tesla.com",
+  "serverToken": "GENERATE_A_LONG_RANDOM_STRING",
+  "host": "0.0.0.0",
+  "port": 8737
+}

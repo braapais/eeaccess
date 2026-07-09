@@ -1,0 +1,15 @@
+[Unit]
+Description=EEAccess Tesla relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/EEAccess/server
+# Set to your absolute node path if `node` isn't on the service PATH (which node)
+ExecStart=/usr/bin/env node server.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
