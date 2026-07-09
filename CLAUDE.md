@@ -121,8 +121,9 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   and (once paired) `keyRoleRaw` — the role is baked into the enrolled key.
 - **Multiple vehicles:** `TeslaVehicle` records are keyed by VIN (unique); the
   app supports more than one car. iPhone: `TeslaKeySettingsView` lists vehicles
-  → `TeslaVehicleFormView` add/edit each (cloud-control section has a vehicle
-  picker). Watch: `WatchTeslaKeyView` routes none→setup / one→direct /
+  → `TeslaVehicleFormView` add/edit each; **cloud commands are per-car** in that
+  view (Refresh/Wake/Lock/Unlock/Climate, shown when signed in), not a global
+  section. Watch: `WatchTeslaKeyView` routes none→setup / one→direct /
   many→list, with per-car controls in `WatchTeslaVehicleView`;
   `WatchPairingView(vehicle:)` pairs a specific car (nil = add new). One BLE
   connection and one `TeslaPresenceScanner` are active at a time (the car whose
