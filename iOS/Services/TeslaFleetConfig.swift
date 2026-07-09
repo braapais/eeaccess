@@ -42,9 +42,9 @@ enum TeslaFleetConfig {
     /// session as its callback scheme.
     static let callbackScheme = "eeaccess"
 
-    /// Region API base ("audience"). North America shown; use
-    /// `https://fleet-api.prd.eu.vn.cloud.tesla.com` in Europe.
-    static let audience = "https://fleet-api.prd.na.vn.cloud.tesla.com"
+    /// Region API base ("audience"). Set to Europe (this account's region);
+    /// use `https://fleet-api.prd.na.vn.cloud.tesla.com` in North America.
+    static let audience = "https://fleet-api.prd.eu.vn.cloud.tesla.com"
 
     /// Base URL for *commands* (lock/unlock/climate). 2021+ vehicles (incl.
     /// the 2023 Model X) reject unsigned commands, so these must be signed by

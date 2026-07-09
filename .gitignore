@@ -35,3 +35,6 @@ _xcode_backup_*/
 
 # Logs / scratch
 *.log
+
+# Tesla Fleet partner keys — never commit (esp. the private key)
+tesla-fleet/
