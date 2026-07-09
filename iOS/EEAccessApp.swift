@@ -38,16 +38,32 @@ struct EEAccessApp: App {
                 await entitlement.refreshEntitlement()
                 await entitlement.loadProduct()
                 await ShareInbox.processPendingShares(container: container, sync: sync)
+                await syncTeslaSession()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
                     Task {
                         await entitlement.refreshEntitlement()
                         await ShareInbox.processPendingShares(container: container, sync: sync)
+                        await syncTeslaSession()
                     }
                 }
             }
         }
         .modelContainer(container)
+    }
+
+    /// Pushes a fresh Fleet access token + region host to the watch so its
+    /// cloud-car controls work standalone. No-op unless signed in.
+    private func syncTeslaSession() async {
+        guard fleetAuth.isSignedIn else { return }
+        let base = await fleet.resolvedRegionBase(auth: fleetAuth)
+        if let session = await fleetAuth.sessionForSync() {
+            sync.sendTeslaCloudSession(
+                accessToken: session.accessToken,
+                expiresAt: session.expiresAt,
+                baseURL: base
+            )
+        }
     }
 }

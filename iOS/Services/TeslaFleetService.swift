@@ -148,6 +148,12 @@ final class TeslaFleetService {
         return token
     }
 
+    /// Public accessor that resolves (and caches) the account's home-region API
+    /// base — used to sync the correct host to the watch.
+    func resolvedRegionBase(auth: TeslaFleetAuth) async -> String {
+        (try? await baseURL(auth: auth)) ?? TeslaFleetConfig.audience
+    }
+
     /// Resolves the account's exact regional API base via `/api/1/users/region`
     /// and caches it. Tesla routes user data to the account's home-region host;
     /// calling the generic region URL can return 412. Falls back to the

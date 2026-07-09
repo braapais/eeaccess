@@ -139,6 +139,21 @@ final class PhoneSyncService: NSObject, ObservableObject, WCSessionDelegate {
         session.transferFile(url, metadata: ["action": "tesla-upsert"])
     }
 
+    /// Syncs the current Fleet access token + region host to the watch so it
+    /// can run cloud commands standalone. Uses application context (latest
+    /// wins) rather than a queued transfer — the watch only needs the freshest
+    /// token. The watch can't refresh, so the phone re-syncs whenever it's
+    /// active.
+    func sendTeslaCloudSession(accessToken: String, expiresAt: Date, baseURL: String) {
+        guard session.activationState == .activated else { return }
+        let context: [String: Any] = [
+            "teslaAccessToken": accessToken,
+            "teslaExpiresAt": expiresAt.timeIntervalSince1970,
+            "teslaBaseURL": baseURL,
+        ]
+        try? session.updateApplicationContext(context)
+    }
+
     /// Tells the watch to forget a Tesla vehicle's metadata. Does not remove
     /// the key from the watch Keychain or the car.
     func sendTeslaVehicleDelete(vin: String) {

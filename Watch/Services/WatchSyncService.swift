@@ -2,6 +2,14 @@ import Foundation
 import WatchConnectivity
 import SwiftData
 
+/// Fleet session the iPhone syncs (application context) so cloud cars work on
+/// the watch standalone.
+struct TeslaCloudSession: Equatable {
+    let accessToken: String
+    let expiresAt: Date
+    let baseURL: String
+}
+
 final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
     @Published var totalUserInfosReceived: Int = 0
     @Published var totalFilesReceived: Int = 0
@@ -9,6 +17,8 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
     @Published var totalDeletes: Int = 0
     @Published var lastReceivedAt: Date?
     @Published var lastError: String?
+    /// Latest Fleet session pushed from the iPhone (nil until first sync).
+    @Published var teslaSession: TeslaCloudSession?
 
     private let session: WCSession = .default
     private let container: ModelContainer
@@ -26,11 +36,32 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
     ) {
-        if let error {
-            Task { @MainActor in
+        let context = session.receivedApplicationContext
+        Task { @MainActor in
+            if let error {
                 self.lastError = "Activation: \(error.localizedDescription)"
             }
+            // A session may have been synced before we activated — apply it.
+            self.applyTeslaContext(context)
         }
+    }
+
+    /// The iPhone syncs the Fleet token/region host via application context
+    /// (latest wins), so cloud-car controls work on the watch standalone.
+    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        Task { @MainActor in self.applyTeslaContext(applicationContext) }
+    }
+
+    @MainActor
+    private func applyTeslaContext(_ context: [String: Any]) {
+        guard let token = context["teslaAccessToken"] as? String, !token.isEmpty,
+              let exp = context["teslaExpiresAt"] as? TimeInterval,
+              let base = context["teslaBaseURL"] as? String else { return }
+        teslaSession = TeslaCloudSession(
+            accessToken: token,
+            expiresAt: Date(timeIntervalSince1970: exp),
+            baseURL: base
+        )
     }
 
     /// Tells the iPhone that this card was opened on the watch, so its

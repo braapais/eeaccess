@@ -6,6 +6,7 @@ struct EEAccessWatchApp: App {
     let container: ModelContainer
     @StateObject private var sync: WatchSyncService
     @State private var keyService = TeslaKeyService()
+    @State private var cloud = WatchTeslaCloud()
 
     init() {
         let container: ModelContainer
@@ -23,7 +24,15 @@ struct EEAccessWatchApp: App {
             WatchCardListView()
                 .environmentObject(sync)
                 .environment(keyService)
+                .environment(cloud)
+                .task(id: sync.teslaSession) { applySession() }
         }
         .modelContainer(container)
+    }
+
+    /// Feed the iPhone-synced Fleet session into the watch cloud client.
+    private func applySession() {
+        guard let s = sync.teslaSession else { return }
+        cloud.applySession(accessToken: s.accessToken, expiresAt: s.expiresAt, baseURL: s.baseURL)
     }
 }

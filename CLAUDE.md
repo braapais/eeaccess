@@ -113,9 +113,14 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   controlled from the iPhone via Fleet API using Tesla-account OAuth. Tesla
   **exempts pre-2021 S/X from signed commands**, so `TeslaFleetService`'s
   `unsigned:` flag sends lock/unlock/climate straight to the Fleet host (no
-  proxy). The watch has no Fleet client — cloud cars show a "control from
-  iPhone" screen there, no pairing. Still needs the Client ID + partner domain
-  registration to function.
+  proxy). On the **watch**, cloud cars get their own controls via
+  `WatchTeslaCloud` (a lightweight Fleet client) using the access token + region
+  host the iPhone syncs over WatchConnectivity **application context**
+  (`PhoneSyncService.sendTeslaCloudSession`, pushed by
+  `EEAccessApp.syncTeslaSession` on launch/active; applied in `WatchSyncService`
+  → `WatchTeslaCloud.applySession`). The watch can't refresh tokens (no OAuth
+  there), so if the synced token expires it asks the user to open the iPhone.
+  Still needs the Client ID + partner domain registration to function.
 - **Phone↔watch:** VIN/name/role sync over WatchConnectivity
   (`tesla-upsert`/`tesla-delete` file transfers). Watch preserves `isPaired`
   and (once paired) `keyRoleRaw` — the role is baked into the enrolled key.

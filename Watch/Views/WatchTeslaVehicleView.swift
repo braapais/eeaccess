@@ -9,13 +9,14 @@ struct WatchTeslaVehicleView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Environment(TeslaKeyService.self) private var key
+    @Environment(WatchTeslaCloud.self) private var cloud
 
     let vehicle: TeslaVehicle
 
     var body: some View {
         Group {
             if vehicle.accessMode == .cloud {
-                cloudInfo
+                cloudControls
             } else if vehicle.isPaired {
                 controls
             } else {
@@ -28,21 +29,99 @@ struct WatchTeslaVehicleView: View {
         }
     }
 
-    /// Pre-2021 S/X have no BLE phone key, and the watch has no Fleet client —
-    /// they're driven from the iPhone over the internet.
-    private var cloudInfo: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "cloud")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-            Text(vehicle.displayName)
-                .font(.headline)
-            Text("Cloud car (pre-2021 Model S/X). Lock, unlock and climate are controlled from EEAccess on your iPhone, using your Tesla account.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+    /// Pre-2021 S/X have no BLE phone key — they're driven over the internet
+    /// via the Fleet session the iPhone synced (unsigned commands).
+    @ViewBuilder
+    private var cloudControls: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                if !cloud.hasSession {
+                    cloudPrompt("Open EEAccess on your iPhone (Tesla Key) once while signed in to enable cloud control here.")
+                } else {
+                    if cloud.tokenExpired {
+                        cloudPrompt("Session expired — open EEAccess on your iPhone to refresh.")
+                    }
+                    Button {
+                        Task { await cloud.unlock(vin: vehicle.vin, unsigned: true) }
+                    } label: {
+                        Label("Unlock", systemImage: "lock.open.fill").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
+
+                    Button {
+                        Task { await cloud.lock(vin: vehicle.vin, unsigned: true) }
+                    } label: {
+                        Label("Lock", systemImage: "lock.fill").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        Task { await cloud.startDrive(vin: vehicle.vin, unsigned: true) }
+                    } label: {
+                        Label("Start Drive", systemImage: "steeringwheel").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.blue)
+
+                    Button {
+                        Task { await cloud.wake(vin: vehicle.vin) }
+                    } label: {
+                        Label("Wake", systemImage: "sun.max").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    HStack {
+                        Button {
+                            Task { await cloud.climateOn(vin: vehicle.vin, unsigned: true) }
+                        } label: {
+                            Label("Climate", systemImage: "fan").frame(maxWidth: .infinity)
+                        }
+                        Button {
+                            Task { await cloud.climateOff(vin: vehicle.vin, unsigned: true) }
+                        } label: {
+                            Label("Off", systemImage: "fan.slash").frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .font(.caption2)
+
+                    Button {
+                        Task { await cloud.refreshState(vin: vehicle.vin) }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .font(.caption2)
+
+                    if let snap = cloud.snapshot {
+                        HStack(spacing: 10) {
+                            if let b = snap.batteryLevel { Text("\(b)%") }
+                            if let l = snap.locked { Text(l ? "Locked" : "Unlocked") }
+                            if let o = snap.online { Text(o ? "Online" : "Asleep") }
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let status = cloud.status {
+                    Text(status).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                if let err = cloud.lastError {
+                    Text(err).font(.caption2).foregroundStyle(.red).multilineTextAlignment(.center)
+                }
+            }
+            .padding(.horizontal, 4)
+            .disabled(cloud.isBusy)
+            .overlay { if cloud.isBusy { ProgressView() } }
         }
-        .padding()
+    }
+
+    private func cloudPrompt(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
     }
 
     private var finishSetupPrompt: some View {
