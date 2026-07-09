@@ -96,11 +96,16 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   skips the command when the car is already unlocked. If the state can't be
   read it unlocks anyway, so the button never dead-ends. Auto-unlock reuses the
   same path, so proximity re-entries don't re-fire unlock either.
-- **Cloud (iOS, optional):** `TeslaFleetAuth` (OAuth PKCE; needs a
-  developer.tesla.com Client ID in `TeslaFleetConfig` — empty = honest "Not
-  configured") + `TeslaFleetService` (state/wake direct; lock/unlock/climate
-  need `commandBaseURL` pointed at a running `tesla-http-proxy`, because
-  2021+ vehicles reject unsigned commands).
+- **Cloud (iOS, optional):** `TeslaFleetAuth` (OAuth PKCE) + `TeslaFleetService`
+  (state/wake direct; lock/unlock/climate need `commandBaseURL` pointed at a
+  running `tesla-http-proxy` for 2021+ signed cars).
+- **Bring-your-own credentials:** the Fleet Client ID is NOT shipped — each
+  user registers their own developer.tesla.com app and enters the Client ID
+  (+ optional secret, region, redirect URI) in `TeslaCredentialsView`, persisted
+  in `TeslaFleetCredentialsStore` (secret in Keychain, rest in UserDefaults).
+  `TeslaFleetConfig` reads through the store (empty = honest "Not configured");
+  `TeslaFleetAuth.reloadConfiguration()` refreshes status after edits. This
+  keeps per-user API costs on the user and no shared secret in the binary.
 - **Cloud-only vehicles (pre-2021 S/X):** `TeslaVehicle.accessMode`
   (`bluetoothKey` | `cloud`, synced phone→watch in the `tesla-upsert` payload).
   Pre-2021 Model S/X have **no BLE phone key**, so they're `cloud` mode:

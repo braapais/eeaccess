@@ -84,7 +84,7 @@ struct TeslaKeySettingsView: View {
             case .notConfigured:
                 Label("Not configured", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
-                Text("Add your developer.tesla.com Client ID in TeslaFleetConfig to enable cloud commands. The watch's Bluetooth key works without this.")
+                Text("Cloud control needs your own Tesla developer credentials (bring-your-own). Tap below to enter them. The watch's Bluetooth key works without this.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             case .signedOut, .failed:
@@ -106,6 +106,12 @@ struct TeslaKeySettingsView: View {
                 } label: {
                     Label("Disconnect", systemImage: "person.badge.minus")
                 }
+            }
+            NavigationLink {
+                TeslaCredentialsView()
+            } label: {
+                Label("Tesla API credentials", systemImage: "key.horizontal")
+                    .font(.footnote)
             }
         }
     }

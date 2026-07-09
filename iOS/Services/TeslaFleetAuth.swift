@@ -21,13 +21,19 @@ final class TeslaFleetAuth {
         case failed(String)
     }
 
-    private(set) var status: Status
+    private(set) var status: Status = .notConfigured
 
     private let tokenStore = TokenStore()
     private let presenter = AuthPresentationProvider()
     private var authSession: ASWebAuthenticationSession?
 
     init() {
+        reloadConfiguration()
+    }
+
+    /// Re-evaluates status after the user's credentials change (e.g. they just
+    /// entered or cleared their own Client ID in the credentials screen).
+    func reloadConfiguration() {
         if !TeslaFleetConfig.isConfigured {
             status = .notConfigured
         } else {

@@ -1,59 +1,69 @@
 import Foundation
 
-/// Configuration for Tesla Fleet API OAuth (cloud control). These values come
-/// from a registered third-party app at https://developer.tesla.com.
+/// Configuration for Tesla Fleet API OAuth (cloud control).
 ///
-/// ⚠️ Until you register an app and fill `clientID` in, "Connect Tesla Account"
-/// reports that setup is incomplete — by design, there is no way around Tesla's
-/// developer registration. One-time setup:
+/// **Bring-your-own-credentials:** rather than shipping a shared Client ID
+/// (which would bill every user's Fleet API usage to the developer and require
+/// a backend for the secret), each user registers their own app at
+/// developer.tesla.com and enters its Client ID in the app — stored in
+/// ``TeslaFleetCredentialsStore``. Until they do, "Connect Tesla Account"
+/// reports that setup is incomplete.
 ///
+/// One-time setup for a user (surfaced in the in-app credentials screen):
 ///  1. Create an app at developer.tesla.com → copy the **Client ID** (and, if
-///     your app is a confidential client, the **Client Secret**).
-///  2. Add an **Allowed Redirect URI** that exactly matches ``redirectURI``.
-///  3. Host your partner public key at
-///     `https://<your-domain>/.well-known/appspecific/com.tesla.3p.public-key.pem`
-///     and register the domain — required before vehicle *commands* will work.
-///  4. Pick the ``audience`` host for your region (NA vs EU).
+///     it's a confidential client, the **Client Secret**).
+///  2. Add an **Allowed Redirect URI** matching ``redirectURI``.
+///  3. Host their partner public key at
+///     `https://<domain>/.well-known/appspecific/com.tesla.3p.public-key.pem`
+///     and register the domain — required before vehicle *commands* work.
+///  4. Pick their region (NA vs EU).
 ///
 /// Endpoints reflect the current Fleet API: authorize on `auth.tesla.com`,
-/// token exchange on `fleet-auth.prd.vn.cloud.tesla.com` (the host all
-/// partners migrated to in 2025).
+/// token exchange on `fleet-auth.prd.vn.cloud.tesla.com`.
 enum TeslaFleetConfig {
-    /// From developer.tesla.com. Empty string = not configured.
-    static let clientID = ""
+    /// User-provided credentials (Client ID / secret / region / redirect).
+    static let store = TeslaFleetCredentialsStore()
 
-    /// Confidential-client secret. ⚠️ Never ship a real secret in the binary —
-    /// it is trivially extractable. Keep this empty (public PKCE-only client),
-    /// or exchange the authorization code on a small backend you control. Only
-    /// fill it in for personal/sideloaded builds.
-    static let clientSecret = ""
+    /// Optional compile-time fallbacks. The public build ships these empty so
+    /// users bring their own; a personal/sideloaded build may hardcode them.
+    private static let fallbackClientID = ""
+    private static let fallbackClientSecret = ""
 
-    /// Must exactly match an Allowed Redirect URI on your Tesla app.
-    ///
-    /// ⚠️ Tesla's developer portal may only accept **https** redirect URIs and
-    /// reject custom schemes. If registration refuses this value, switch to an
-    /// https URL on a domain you own and replace the session's
-    /// `callbackURLScheme` in `TeslaFleetAuth.authenticate(url:)` with
-    /// `ASWebAuthenticationSession.Callback.https(host:path:)` (requires the
-    /// matching universal-link / associated-domain setup).
-    static let redirectURI = "eeaccess://tesla/callback"
+    /// From the user's developer.tesla.com app. Empty = not configured.
+    static var clientID: String {
+        let v = store.clientID
+        return v.isEmpty ? fallbackClientID : v
+    }
 
-    /// The custom URL-scheme portion of ``redirectURI`` handed to the auth
-    /// session as its callback scheme.
+    /// Confidential-client secret. For bring-your-own it's the user's *own*
+    /// secret, kept in their device Keychain — never shipped in the binary.
+    /// Leave empty for a public (PKCE-only) client.
+    static var clientSecret: String {
+        let v = store.clientSecret
+        return v.isEmpty ? fallbackClientSecret : v
+    }
+
+    /// Must exactly match an Allowed Redirect URI on the user's Tesla app.
+    /// Defaults to the app's custom scheme; a user whose Tesla app requires an
+    /// https redirect can enter their own bounce URL (a static page that
+    /// redirects to `eeaccess://tesla/callback` — see BrandAssets/tesla docs).
+    static var redirectURI: String {
+        let v = store.redirectURI
+        return v.isEmpty ? "eeaccess://tesla/callback" : v
+    }
+
+    /// The custom URL-scheme the auth session watches for. Fixed to the app's
+    /// scheme regardless of the registered redirect (an https redirect must
+    /// bounce back to this scheme).
     static let callbackScheme = "eeaccess"
 
-    /// Region API base ("audience"). Set to Europe (this account's region);
-    /// use `https://fleet-api.prd.na.vn.cloud.tesla.com` in North America.
-    static let audience = "https://fleet-api.prd.eu.vn.cloud.tesla.com"
+    /// Region API base ("audience"), from the user's selection.
+    static var audience: String { store.region.audience }
 
-    /// Base URL for *commands* (lock/unlock/climate). 2021+ vehicles (incl.
-    /// the 2023 Model X) reject unsigned commands, so these must be signed by
-    /// Tesla's `tesla-http-proxy` using the public key enrolled in the car.
-    /// Point this at your running proxy (e.g. "https://your-host:4443") to
-    /// enable cloud commands. Left equal to ``audience``, reading state and
-    /// waking work, but lock/unlock/climate return "Vehicle Command Protocol
-    /// required". Pre-2021 S/X can use ``audience`` directly.
-    static let commandBaseURL = audience
+    /// Base URL for *commands*. Pre-2021 S/X accept unsigned commands, so they
+    /// go to ``audience`` directly (via the service's `unsigned:` flag). 2021+
+    /// cars would need a signing proxy — out of scope for bring-your-own.
+    static var commandBaseURL: String { audience }
 
     static let authorizeURL = URL(string: "https://auth.tesla.com/oauth2/v3/authorize")!
     static let tokenURL = URL(string: "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token")!
