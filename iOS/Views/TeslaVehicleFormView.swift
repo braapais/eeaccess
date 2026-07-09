@@ -116,6 +116,10 @@ struct TeslaVehicleFormView: View {
             if fleet.accountVehicles.isEmpty {
                 if fleet.isBusy {
                     HStack { ProgressView(); Text("Loading your vehicles…") }
+                } else if let error = fleet.lastError {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                 } else {
                     Text("No vehicles found on your account.")
                         .font(.footnote)
