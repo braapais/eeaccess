@@ -84,6 +84,27 @@ compatibility.
 
 ## What's New (release notes, max 4000)
 
+### 2.5
+Your Apple Watch Tesla key just got a major update.
+
+• Multiple cars — pair and switch between more than one Tesla.
+• Start Drive — enable keyless driving from your wrist or iPhone; press the
+  brake and go.
+• More reliable walk-up auto-unlock as you approach the car.
+• Import your cars from your Tesla account — pick them, don't type the VIN.
+• Redeem access codes right in the app.
+
+Older Teslas + cloud (advanced):
+• Control 2012–2020 Model S/X over the internet — lock, unlock, drive, climate —
+  using your own Tesla account.
+• Send commands from Apple Watch over LTE, no iPhone needed.
+• Schedule Unlock + Drive to run in 60 seconds — handy for garages with no
+  signal.
+Cloud features use your own Tesla developer credentials; the Bluetooth watch key
+needs none of it.
+
+One-time payment. No subscription, ever.
+
 ### 2.1
 Your Apple Watch is a Tesla key — and getting full access just got easier.
 
