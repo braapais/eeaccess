@@ -99,7 +99,26 @@ final class TeslaKeyService {
 
     @discardableResult
     func lock(vin: String) async -> Bool {
-        await perform(.security(.lock), vin: vin, busy: "Locking…", done: "Locked")
+        guard !isBusy else { return false }
+        isBusy = true; lastError = nil; status = "Checking…"
+        defer { isBusy = false }
+        do {
+            let client = try await usableClient(vin: vin)
+            // Only send lock if the car is actually unlocked — locking an
+            // already-locked car is redundant. If the state can't be read, fall
+            // through and lock anyway so the button never dead-ends.
+            if await lockState(client: client) == .locked {
+                setTransientStatus("Already locked")
+                return true
+            }
+            status = "Locking…"
+            try await client.send(.security(.lock))
+            setTransientStatus("Locked")
+            return true
+        } catch {
+            fail(error)
+            return false
+        }
     }
 
     /// Explicitly authorizes driving — the same VCSEC command as the Tesla

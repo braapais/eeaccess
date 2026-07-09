@@ -91,11 +91,12 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
 - **Drive:** watch key presence alone may not arm drive-away; `startDrive(vin:)`
   sends `.security(.remoteDrive)` (`RKE_ACTION_REMOTE_DRIVE` — the Tesla app's
   Keyless Driving): car allows driving for ~2 min, press brake within window.
-- **Unlock is status-gated:** `unlock(vin:)` reads the VCSEC lock state first
-  (`client.query(.bodyControllerState)` → `vehicleLockState`, 3 s timeout) and
-  skips the command when the car is already unlocked. If the state can't be
-  read it unlocks anyway, so the button never dead-ends. Auto-unlock reuses the
-  same path, so proximity re-entries don't re-fire unlock either.
+- **Lock/unlock are status-gated:** both read the VCSEC lock state first
+  (`client.query(.bodyControllerState)` → `vehicleLockState`, 3 s timeout, via
+  `lockState(client:)`) and skip the command when the car is already in the
+  target state ("Already locked/unlocked"). If the state can't be read they act
+  anyway, so the buttons never dead-end. Auto-unlock/-lock reuse the same paths,
+  so proximity re-entries don't re-fire either.
 - **Cloud (iOS, optional):** `TeslaFleetAuth` (OAuth PKCE) + `TeslaFleetService`
   (state/wake direct; lock/unlock/climate need `commandBaseURL` pointed at a
   running `tesla-http-proxy` for 2021+ signed cars).
