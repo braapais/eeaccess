@@ -117,7 +117,18 @@ function scheduleUnlockDrive(vin, delay) {
 }
 
 // --- HTTP ---------------------------------------------------------------------
-const authed = (req) => (req.headers.authorization || '') === `Bearer ${config.serverToken}`
+// Accept either a bearer token (apps) or HTTP Basic username/password (humans/
+// browser). Always run behind HTTPS (Cloudflare Tunnel) — the credential is
+// only as private as the transport.
+function authed(req) {
+  const h = req.headers.authorization || ''
+  if (config.serverToken && h === `Bearer ${config.serverToken}`) return true
+  if (h.startsWith('Basic ') && config.username) {
+    const [u, p] = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':')
+    return u === config.username && p === config.password
+  }
+  return false
+}
 const json = (res, code, obj) => {
   res.writeHead(code, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify(obj))

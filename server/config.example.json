@@ -4,6 +4,8 @@
   "refreshToken": "",
   "regionBase": "https://fleet-api.prd.eu.vn.cloud.tesla.com",
   "serverToken": "GENERATE_A_LONG_RANDOM_STRING",
-  "host": "0.0.0.0",
+  "username": "eeaccess",
+  "password": "GENERATE_A_STRONG_PASSWORD",
+  "host": "127.0.0.1",
   "port": 8737
 }
