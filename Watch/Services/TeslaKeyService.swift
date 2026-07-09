@@ -59,7 +59,42 @@ final class TeslaKeyService {
 
     @discardableResult
     func unlock(vin: String) async -> Bool {
-        await perform(.security(.unlock), vin: vin, busy: "Unlocking…", done: "Unlocked")
+        guard !isBusy else { return false }
+        isBusy = true; lastError = nil; status = "Checking…"
+        defer { isBusy = false }
+        do {
+            let client = try await usableClient(vin: vin)
+            // Only send unlock if the car is actually locked — unlocking an
+            // already-open car is a redundant command (re-chirps/flashes). If
+            // the state can't be read, fall through and unlock anyway so the
+            // button never dead-ends.
+            if await lockState(client: client) == .unlocked {
+                setTransientStatus("Already unlocked")
+                return true
+            }
+            status = "Unlocking…"
+            try await client.send(.security(.unlock))
+            setTransientStatus("Unlocked")
+            return true
+        } catch {
+            fail(error)
+            return false
+        }
+    }
+
+    private enum LockState { case locked, unlocked, unknown }
+
+    /// Reads the car's lock state over BLE (VCSEC body-controller status).
+    /// Short timeout + `.unknown` on any failure so a slow/absent reply falls
+    /// back to just sending the command rather than blocking it.
+    private func lockState(client: TeslaVehicleClient) async -> LockState {
+        guard let result = try? await client.query(.bodyControllerState, timeout: .seconds(3)),
+              case let .bodyControllerState(vcsec) = result else { return .unknown }
+        switch vcsec.vehicleLockState {
+        case .vehiclelockstateLocked, .vehiclelockstateInternalLocked: return .locked
+        case .vehiclelockstateUnlocked, .vehiclelockstateSelectiveUnlocked: return .unlocked
+        case .UNRECOGNIZED: return .unknown
+        }
     }
 
     @discardableResult
@@ -153,17 +188,21 @@ final class TeslaKeyService {
     func setAutoEntry(_ enabled: Bool, vin: String) {
         guard enabled else { presence.stop(); return }
         presence.onEnterRange = { [weak self] in
-            Task { await self?.autoTrigger(.security(.unlock), vin: vin, busy: "Approaching — unlocking…", done: "Unlocked") }
+            guard let self else { return }
+            Task { await self.autoPerform { await self.unlock(vin: vin) } }
         }
         presence.onLeaveRange = { [weak self] in
-            Task { await self?.autoTrigger(.security(.lock), vin: vin, busy: "Leaving — locking…", done: "Locked") }
+            guard let self else { return }
+            Task { await self.autoPerform { await self.lock(vin: vin) } }
         }
         presence.start(vin: vin)
     }
 
-    private func autoTrigger(_ command: Command, vin: String, busy: String, done: String) async {
-        // If a manual command is mid-flight, wait briefly instead of silently
-        // dropping the approach/leave event (perform() no-ops while busy).
+    /// Runs an auto-entry action (unlock on approach / lock on leave). Waits
+    /// briefly if a manual command is mid-flight rather than dropping the
+    /// event, pauses the scan while the command owns the radio, then resumes.
+    /// Auto-unlock reuses `unlock(vin:)`, so it also skips an already-open car.
+    private func autoPerform(_ action: () async -> Void) async {
         var waited: Duration = .zero
         while isBusy, waited < .seconds(10) {
             try? await Task.sleep(for: .milliseconds(500))
@@ -171,7 +210,7 @@ final class TeslaKeyService {
         }
         guard !isBusy else { return }
         presence.pause()
-        await perform(command, vin: vin, busy: busy, done: done)
+        await action()
         presence.resume()
     }
 
