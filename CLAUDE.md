@@ -123,7 +123,9 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   app supports more than one car. iPhone: `TeslaKeySettingsView` lists vehicles
   → `TeslaVehicleFormView` add/edit each; **cloud commands are per-car** in that
   view (Refresh/Wake/Lock/Unlock/Climate, shown when signed in), not a global
-  section. Watch: `WatchTeslaKeyView` routes none→setup / one→direct /
+  section. Add Vehicle imports the signed-in account's cars
+  (`TeslaFleetService.fetchVehicles` → `GET /api/1/vehicles`) so the VIN is
+  picked, not typed. Watch: `WatchTeslaKeyView` routes none→setup / one→direct /
   many→list, with per-car controls in `WatchTeslaVehicleView`;
   `WatchPairingView(vehicle:)` pairs a specific car (nil = add new). One BLE
   connection and one `TeslaPresenceScanner` are active at a time (the car whose

@@ -32,6 +32,9 @@ struct TeslaVehicleFormView: View {
 
     var body: some View {
         Form {
+            if vehicle == nil, fleetAuth.isSignedIn {
+                accountVehiclesSection
+            }
             Section("Vehicle") {
                 TextField("VIN (17 characters)", text: $vin)
                     .textInputAutocapitalization(.characters)
@@ -95,9 +98,58 @@ struct TeslaVehicleFormView: View {
                 name = vehicle.displayName
                 role = vehicle.keyRoleRaw
                 accessMode = vehicle.accessMode
-            } else if name.isEmpty {
-                name = "Tesla"
+            } else {
+                if name.isEmpty { name = "Tesla" }
+                // Pull the account's cars so the user can pick instead of typing.
+                if fleetAuth.isSignedIn, fleet.accountVehicles.isEmpty {
+                    Task { await fleet.fetchVehicles(auth: fleetAuth) }
+                }
             }
+        }
+    }
+
+    // MARK: - Import from account
+
+    @ViewBuilder
+    private var accountVehiclesSection: some View {
+        Section("From your Tesla account") {
+            if fleet.accountVehicles.isEmpty {
+                if fleet.isBusy {
+                    HStack { ProgressView(); Text("Loading your vehicles…") }
+                } else {
+                    Text("No vehicles found on your account.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                ForEach(fleet.accountVehicles) { fv in
+                    Button {
+                        vin = fv.vin
+                        name = fv.displayName
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(fv.displayName)
+                                    .foregroundStyle(.primary)
+                                Text(fv.vin)
+                                    .font(.caption)
+                                    .monospaced()
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if cleanVIN == fv.vin {
+                                Image(systemName: "checkmark").foregroundStyle(.tint)
+                            }
+                        }
+                    }
+                }
+            }
+            Button {
+                Task { await fleet.fetchVehicles(auth: fleetAuth) }
+            } label: {
+                Label("Refresh list", systemImage: "arrow.clockwise")
+            }
+            .font(.footnote)
         }
     }
 

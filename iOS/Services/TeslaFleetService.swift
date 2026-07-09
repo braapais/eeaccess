@@ -24,7 +24,15 @@ final class TeslaFleetService {
         var insideTempC: Double?
     }
 
+    /// A vehicle as listed on the signed-in Tesla account.
+    struct FleetVehicle: Identifiable, Sendable, Equatable {
+        let vin: String
+        let displayName: String
+        var id: String { vin }
+    }
+
     private(set) var snapshot: Snapshot?
+    private(set) var accountVehicles: [FleetVehicle] = []
     private(set) var isBusy = false
     private(set) var status: String?
     private(set) var lastError: String?
@@ -50,6 +58,17 @@ final class TeslaFleetService {
     }
 
     // MARK: - Commands
+
+    /// Loads the vehicles on the signed-in Tesla account so the user can pick
+    /// one instead of typing a VIN (needs the `vehicle_device_data` scope).
+    func fetchVehicles(auth: TeslaFleetAuth) async {
+        await run("Loading your vehicles…") {
+            let data: VehicleListResponse = try await self.get("/api/1/vehicles", auth: auth)
+            self.accountVehicles = data.response.map {
+                FleetVehicle(vin: $0.vin, displayName: $0.display_name ?? "Tesla")
+            }
+        }
+    }
 
     func refresh(vin: String, auth: TeslaFleetAuth) async {
         await run("Refreshing…") {
@@ -158,6 +177,14 @@ final class TeslaFleetService {
     }
 
     // MARK: - Decodables
+
+    private struct VehicleListResponse: Decodable {
+        struct Vehicle: Decodable {
+            let vin: String
+            let display_name: String?
+        }
+        let response: [Vehicle]
+    }
 
     private struct VehicleDataResponse: Decodable {
         struct Response: Decodable {
