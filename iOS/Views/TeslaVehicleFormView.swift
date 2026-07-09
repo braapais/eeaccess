@@ -148,6 +148,11 @@ struct TeslaVehicleFormView: View {
                     }
                 }
             }
+            if let base = fleet.resolvedBaseURL {
+                Text("Region host: \(base.replacingOccurrences(of: "https://", with: ""))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             Button {
                 Task { await fleet.fetchVehicles(auth: fleetAuth) }
             } label: {

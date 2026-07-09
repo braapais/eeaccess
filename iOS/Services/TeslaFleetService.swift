@@ -33,6 +33,10 @@ final class TeslaFleetService {
 
     private(set) var snapshot: Snapshot?
     private(set) var accountVehicles: [FleetVehicle] = []
+    /// The account's exact home-region API base, resolved from Tesla once
+    /// signed in. Tesla routes user data per home region; the generic region
+    /// host can return 412 if it isn't the exact match.
+    private(set) var resolvedBaseURL: String?
     private(set) var isBusy = false
     private(set) var status: String?
     private(set) var lastError: String?
@@ -137,9 +141,29 @@ final class TeslaFleetService {
         return token
     }
 
+    /// Resolves the account's exact regional API base via `/api/1/users/region`
+    /// and caches it. Tesla routes user data to the account's home-region host;
+    /// calling the generic region URL can return 412. Falls back to the
+    /// configured region host if the lookup fails.
+    private func baseURL(auth: TeslaFleetAuth) async throws -> String {
+        if let resolvedBaseURL { return resolvedBaseURL }
+        let token = try await token(auth)
+        var request = URLRequest(url: URL(string: TeslaFleetConfig.audience + "/api/1/users/region")!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let (data, response) = try? await URLSession.shared.data(for: request),
+           let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+           let region = try? JSONDecoder().decode(RegionResponse.self, from: data),
+           let base = region.response.fleetApiBaseURL, !base.isEmpty {
+            resolvedBaseURL = base
+            return base
+        }
+        return TeslaFleetConfig.audience
+    }
+
     private func get<T: Decodable>(_ path: String, auth: TeslaFleetAuth) async throws -> T {
         let token = try await token(auth)
-        var request = URLRequest(url: URL(string: TeslaFleetConfig.audience + path)!)
+        let base = try await baseURL(auth: auth)
+        var request = URLRequest(url: URL(string: base + path)!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await URLSession.shared.data(for: request)
         try Self.check(response, data)
@@ -149,7 +173,7 @@ final class TeslaFleetService {
     @discardableResult
     private func post(_ path: String, auth: TeslaFleetAuth, command: Bool) async throws -> Data {
         let token = try await token(auth)
-        let base = command ? TeslaFleetConfig.commandBaseURL : TeslaFleetConfig.audience
+        let base = command ? TeslaFleetConfig.commandBaseURL : (try await baseURL(auth: auth))
         var request = URLRequest(url: URL(string: base + path)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -184,6 +208,18 @@ final class TeslaFleetService {
             let display_name: String?
         }
         let response: [Vehicle]
+    }
+
+    private struct RegionResponse: Decodable {
+        struct R: Decodable {
+            let region: String?
+            let fleetApiBaseURL: String?
+            enum CodingKeys: String, CodingKey {
+                case region
+                case fleetApiBaseURL = "fleet_api_base_url"
+            }
+        }
+        let response: R
     }
 
     private struct VehicleDataResponse: Decodable {
