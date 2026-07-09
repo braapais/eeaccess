@@ -41,6 +41,10 @@ final class TeslaKeyService {
         let service = keychainService
             ?? ((Bundle.main.bundleIdentifier ?? "com.elbaeverywhere.eeaccess") + ".teslakey")
         keyStore = KeychainTeslaKeyStore(service: service)
+        // A live signed link means the car is in range even though it has
+        // stopped advertising — keeps the presence scanner from misreading
+        // the post-unlock silence as "walked away".
+        presence.hasLiveConnection = { [weak self] in self?.connection == .connected }
     }
 
     var isConnected: Bool { connection == .connected }
@@ -61,6 +65,17 @@ final class TeslaKeyService {
     @discardableResult
     func lock(vin: String) async -> Bool {
         await perform(.security(.lock), vin: vin, busy: "Locking…", done: "Locked")
+    }
+
+    /// Explicitly authorizes driving — the same VCSEC command as the Tesla
+    /// app's Keyless Driving (`RKE_ACTION_REMOTE_DRIVE`): the car allows
+    /// drive-away for ~2 minutes; get in and press the brake within the
+    /// window. Use when key presence alone doesn't arm drive.
+    @discardableResult
+    func startDrive(vin: String) async -> Bool {
+        await perform(.security(.remoteDrive), vin: vin,
+                      busy: "Enabling drive…",
+                      done: "Drive enabled — press the brake within 2 min")
     }
 
     /// Brings up the signed session so the car authorizes drive-away. Once

@@ -80,7 +80,17 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   local name (`"S"+hex(sha1(VIN)[0..8])+"C"`); nil-service scans don't run in
   background on watchOS, so enter/leave transitions are gated on app-active
   (`setAppActive` from scenePhase) — background "loss" is throttling, not
-  distance. Auto-unlock deliberately requires the app frontmost.
+  distance. Auto-unlock deliberately requires the app frontmost. **Two scan
+  gotchas (both bit us):** the scan must run with
+  `CBCentralManagerScanOptionAllowDuplicatesKey: true` — with filtering on,
+  CoreBluetooth reports the car ONCE per scan session, so approach RSSI never
+  updates and auto-unlock only fires on lucky timing; and the car stops
+  advertising while a BLE link is open, so the loss timer must treat a live
+  connection as "near" (`presence.hasLiveConnection`) or it fires a phantom
+  auto-lock right after auto-unlock.
+- **Drive:** watch key presence alone may not arm drive-away; `startDrive(vin:)`
+  sends `.security(.remoteDrive)` (`RKE_ACTION_REMOTE_DRIVE` — the Tesla app's
+  Keyless Driving): car allows driving for ~2 min, press brake within window.
 - **Cloud (iOS, optional):** `TeslaFleetAuth` (OAuth PKCE; needs a
   developer.tesla.com Client ID in `TeslaFleetConfig` — empty = honest "Not
   configured") + `TeslaFleetService` (state/wake direct; lock/unlock/climate

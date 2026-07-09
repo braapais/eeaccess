@@ -82,18 +82,19 @@ struct WatchTeslaKeyView: View {
                 }
                 .buttonStyle(.bordered)
 
+                Button {
+                    Task { if await key.startDrive(vin: vehicle.vin) { bump(vehicle) } }
+                } label: {
+                    Label("Start Drive", systemImage: "steeringwheel")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.blue)
+
                 if key.isConnected {
-                    Label("Connected — get in and drive", systemImage: "steeringwheel")
+                    Label("Connected", systemImage: "checkmark.circle.fill")
                         .font(.caption2)
                         .foregroundStyle(.green)
-                } else {
-                    Button {
-                        Task { if await key.connect(vin: vehicle.vin) { bump(vehicle) } }
-                    } label: {
-                        Label("Connect to drive", systemImage: "steeringwheel")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
                 }
 
                 Divider()

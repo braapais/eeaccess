@@ -23,6 +23,11 @@ final class TeslaPresenceScanner: NSObject {
     var onEnterRange: (() -> Void)?
     /// Fired on a sustained near → far transition (you walked away).
     var onLeaveRange: (() -> Void)?
+    /// Returns true while a live BLE command link to the car is open. The car
+    /// stops advertising while connected, so the scan goes silent exactly when
+    /// we are provably next to it — without this, the loss timer fires a
+    /// phantom "walked away" (and auto-lock) right after an auto-unlock.
+    var hasLiveConnection: (() -> Bool)?
 
     /// RSSI at or above which the car counts as "near" (a few metres).
     var nearThresholdDBM = -70
@@ -93,9 +98,17 @@ final class TeslaPresenceScanner: NSObject {
         // app is active; background scanning is throttled by watchOS. (If the
         // car turns out to advertise its service UUID, switching to a filtered
         // scan here would improve background behaviour.)
+        //
+        // Duplicates MUST be allowed: with filtering on, CoreBluetooth
+        // coalesces a peripheral's adverts into a single discovery per scan
+        // session, so the car is reported once (often still far away, below
+        // the near threshold) and the RSSI never updates as the user walks
+        // up — auto-unlock then only ever fires on lucky timing. Continuous
+        // delivery is foreground-only, which matches this scanner's app-active
+        // gating anyway.
         central.scanForPeripherals(
             withServices: nil,
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
         )
     }
 
@@ -107,7 +120,15 @@ final class TeslaPresenceScanner: NSObject {
     }
 
     private func checkForLoss() {
-        guard appActive, proximity == .near, let lastSeen else { return }
+        // While paused the scan isn't running, so "no sightings" means
+        // nothing; while connected the car doesn't advertise at all — keep
+        // the sighting fresh so disconnect starts a clean 30 s window.
+        guard appActive, !paused, proximity == .near else { return }
+        if hasLiveConnection?() == true {
+            lastSeen = Date()
+            return
+        }
+        guard let lastSeen else { return }
         if Date().timeIntervalSince(lastSeen) > lossInterval {
             proximity = .far
             onLeaveRange?()
