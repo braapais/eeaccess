@@ -1,26 +1,21 @@
 import SwiftUI
 import SwiftData
 
-/// iPhone setup + cloud control for the Tesla key: enter the VIN (synced to the
-/// watch so you don't type it on the wrist), connect your Tesla account, and
-/// send cloud commands. In-car BLE pairing happens on the watch.
+/// iPhone setup + cloud control for the Tesla keys: manage your vehicles
+/// (VIN/name/role, synced to the watch so you don't type on the wrist),
+/// connect your Tesla account, and send cloud commands. In-car BLE pairing
+/// happens on the watch — once per vehicle.
 struct TeslaKeySettingsView: View {
-    @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var sync: PhoneSyncService
     @Environment(TeslaFleetAuth.self) private var fleetAuth
     @Environment(TeslaFleetService.self) private var fleet
     @Query(sort: \TeslaVehicle.createdAt) private var vehicles: [TeslaVehicle]
 
-    @State private var vin = ""
-    @State private var name = "Model X"
-    @State private var role = "driver"
-    @State private var savedNote: String?
+    /// VIN of the vehicle targeted by the cloud-control section.
+    @State private var cloudVIN = ""
 
-    private var existing: TeslaVehicle? { vehicles.first }
-    // VINs never contain I, O, or Q — strip them along with separators.
-    private var cleanVIN: String {
-        vin.uppercased().filter { ($0.isLetter || $0.isNumber) && !"IOQ".contains($0) }
+    private var cloudVehicle: TeslaVehicle? {
+        vehicles.first(where: { $0.vin == cloudVIN }) ?? vehicles.first
     }
 
     var body: some View {
@@ -29,7 +24,7 @@ struct TeslaKeySettingsView: View {
             accountSection
             cloudSection
             Section {
-                Text("Pairing the watch as a Bluetooth key happens in the car: open EEAccess on your Apple Watch → Tesla Key → Set Up Key, with your Tesla key card. The Bluetooth key works with no account and no internet.")
+                Text("Pairing the watch as a Bluetooth key happens in the car: open EEAccess on your Apple Watch → Tesla Key → Set Up Key, with that car's Tesla key card. Repeat once per vehicle. The Bluetooth key works with no account and no internet.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -41,59 +36,35 @@ struct TeslaKeySettingsView: View {
             }
         }
         .onAppear {
-            if let existing {
-                vin = existing.vin
-                name = existing.displayName
-                role = existing.keyRoleRaw
+            if cloudVehicle?.vin != cloudVIN {
+                cloudVIN = vehicles.first?.vin ?? ""
             }
         }
     }
 
-    // MARK: - Vehicle
+    // MARK: - Vehicles
 
     private var vehicleSection: some View {
-        Section("Vehicle") {
-            TextField("VIN (17 characters)", text: $vin)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-            TextField("Name", text: $name)
-            Picker("Key role", selection: $role) {
-                Text("Driver").tag("driver")
-                Text("Owner").tag("owner")
-            }
-            .pickerStyle(.segmented)
-            Button {
-                save()
-            } label: {
-                Label(
-                    existing == nil ? "Save & sync to watch" : "Update & sync to watch",
-                    systemImage: "applewatch.radiowaves.left.and.right"
-                )
-            }
-            .disabled(cleanVIN.count != 17)
-            if let savedNote {
-                Text(savedNote).font(.footnote).foregroundStyle(.green)
-            }
-            if existing != nil {
-                Button(role: .destructive) {
-                    removeVehicle()
+        Section("Vehicles") {
+            ForEach(vehicles) { vehicle in
+                NavigationLink {
+                    TeslaVehicleFormView(vehicle: vehicle)
                 } label: {
-                    Label("Remove vehicle", systemImage: "trash")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(vehicle.displayName)
+                        Text(vehicle.vin)
+                            .font(.caption)
+                            .monospaced()
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                Text("Removes it from this iPhone and the watch. The watch's key stays in its Keychain, and the key stays enrolled on the car — remove that from the car's screen (Controls ▸ Locks ▸ Keys).")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            }
+            NavigationLink {
+                TeslaVehicleFormView(vehicle: nil)
+            } label: {
+                Label("Add Vehicle", systemImage: "plus.circle")
             }
         }
-    }
-
-    private func removeVehicle() {
-        guard let existing else { return }
-        sync.sendTeslaVehicleDelete(vin: existing.vin)
-        context.delete(existing)
-        try? context.save()
-        vin = ""
-        savedNote = nil
     }
 
     // MARK: - Account
@@ -137,7 +108,14 @@ struct TeslaKeySettingsView: View {
     private var cloudSection: some View {
         if fleetAuth.isSignedIn {
             Section("Cloud control") {
-                if let vin = existing?.vin {
+                if vehicles.count > 1 {
+                    Picker("Vehicle", selection: $cloudVIN) {
+                        ForEach(vehicles) { vehicle in
+                            Text(vehicle.displayName).tag(vehicle.vin)
+                        }
+                    }
+                }
+                if let vin = cloudVehicle?.vin {
                     if let snap = fleet.snapshot {
                         snapshotRows(snap)
                     }
@@ -199,22 +177,5 @@ struct TeslaKeySettingsView: View {
             if let o = snap.online { LabeledContent("State", value: o ? "Online" : "Asleep") }
             if let t = snap.insideTempC { LabeledContent("Inside", value: "\(Int(t))°C") }
         }
-    }
-
-    // MARK: - Save
-
-    private func save() {
-        let vehicle = existing ?? TeslaVehicle(vin: cleanVIN, displayName: name)
-        vehicle.vin = cleanVIN
-        vehicle.displayName = name.isEmpty ? "Tesla" : name
-        vehicle.keyRoleRaw = role
-        if existing == nil { context.insert(vehicle) }
-        try? context.save()
-        sync.sendTeslaVehicle(
-            vin: vehicle.vin,
-            displayName: vehicle.displayName,
-            keyRoleRaw: vehicle.keyRoleRaw
-        )
-        savedNote = "Saved & synced to your Apple Watch"
     }
 }

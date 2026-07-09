@@ -1,0 +1,112 @@
+import SwiftUI
+import SwiftData
+
+/// Add or edit a single Tesla (VIN, name, role) and sync it to the watch.
+/// Pass `nil` to create a new vehicle.
+struct TeslaVehicleFormView: View {
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sync: PhoneSyncService
+    @Query(sort: \TeslaVehicle.createdAt) private var vehicles: [TeslaVehicle]
+
+    let vehicle: TeslaVehicle?
+
+    @State private var vin = ""
+    @State private var name = ""
+    @State private var role = "driver"
+    @State private var savedNote: String?
+
+    // VINs never contain I, O, or Q — strip them along with separators.
+    private var cleanVIN: String {
+        vin.uppercased().filter { ($0.isLetter || $0.isNumber) && !"IOQ".contains($0) }
+    }
+
+    /// The VIN is the record's identity on both devices (unique attribute
+    /// here, sync key on the watch) — a second record can't share it.
+    private var vinTakenByOther: Bool {
+        vehicles.contains { $0.vin == cleanVIN && $0.persistentModelID != vehicle?.persistentModelID }
+    }
+
+    var body: some View {
+        Form {
+            Section("Vehicle") {
+                TextField("VIN (17 characters)", text: $vin)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                TextField("Name", text: $name)
+                Picker("Key role", selection: $role) {
+                    Text("Driver").tag("driver")
+                    Text("Owner").tag("owner")
+                }
+                .pickerStyle(.segmented)
+                Button {
+                    save()
+                } label: {
+                    Label(
+                        vehicle == nil ? "Save & sync to watch" : "Update & sync to watch",
+                        systemImage: "applewatch.radiowaves.left.and.right"
+                    )
+                }
+                .disabled(cleanVIN.count != 17 || vinTakenByOther)
+                if vinTakenByOther {
+                    Text("Another vehicle already uses this VIN.")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+                if let savedNote {
+                    Text(savedNote).font(.footnote).foregroundStyle(.green)
+                }
+            }
+            if vehicle != nil {
+                Section {
+                    Button(role: .destructive) {
+                        remove()
+                    } label: {
+                        Label("Remove vehicle", systemImage: "trash")
+                    }
+                    Text("Removes it from this iPhone and the watch. The watch's key stays in its Keychain, and the key stays enrolled on the car — remove that from the car's screen (Controls ▸ Locks ▸ Keys).")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .navigationTitle(vehicle == nil ? "Add Vehicle" : "Edit Vehicle")
+        .onAppear {
+            if let vehicle {
+                vin = vehicle.vin
+                name = vehicle.displayName
+                role = vehicle.keyRoleRaw
+            } else if name.isEmpty {
+                name = "Tesla"
+            }
+        }
+    }
+
+    private func save() {
+        // The VIN keys the watch-side record; if it changed, retire the old
+        // one there or the watch would keep a stale duplicate.
+        if let vehicle, vehicle.vin != cleanVIN {
+            sync.sendTeslaVehicleDelete(vin: vehicle.vin)
+        }
+        let target = vehicle ?? TeslaVehicle(vin: cleanVIN, displayName: name)
+        target.vin = cleanVIN
+        target.displayName = name.isEmpty ? "Tesla" : name
+        target.keyRoleRaw = role
+        if vehicle == nil { context.insert(target) }
+        try? context.save()
+        sync.sendTeslaVehicle(
+            vin: target.vin,
+            displayName: target.displayName,
+            keyRoleRaw: target.keyRoleRaw
+        )
+        savedNote = "Saved & synced to your Apple Watch"
+    }
+
+    private func remove() {
+        guard let vehicle else { return }
+        sync.sendTeslaVehicleDelete(vin: vehicle.vin)
+        context.delete(vehicle)
+        try? context.save()
+        dismiss()
+    }
+}

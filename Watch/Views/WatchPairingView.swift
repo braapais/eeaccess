@@ -11,14 +11,16 @@ struct WatchPairingView: View {
     @Environment(\.modelContext) private var context
     @Environment(TeslaKeyService.self) private var key
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \TeslaVehicle.createdAt) private var vehicles: [TeslaVehicle]
+
+    /// The vehicle being paired/managed. `nil` = add a new car (manual entry).
+    let vehicle: TeslaVehicle?
 
     @State private var vin = ""
     @State private var name = "Model X"
     @State private var useOwnerRole = false
     @State private var requestSent = false
 
-    private var existing: TeslaVehicle? { vehicles.first }
+    private var existing: TeslaVehicle? { vehicle }
 
     private var targetVIN: String {
         if let existing { return existing.vin }
