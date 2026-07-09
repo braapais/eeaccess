@@ -89,11 +89,12 @@ final class TeslaFleetAuth {
         status = TeslaFleetConfig.isConfigured ? .signedOut : .notConfigured
     }
 
-    /// A valid access token + its expiry, for syncing to the watch so it can
-    /// make cloud calls standalone. Refreshes first if near expiry.
-    func sessionForSync() async -> (accessToken: String, expiresAt: Date)? {
+    /// A valid access token, its refresh token, and expiry — for syncing to the
+    /// watch so it can make (and refresh) cloud calls standalone. Refreshes
+    /// first if near expiry.
+    func sessionForSync() async -> (accessToken: String, refreshToken: String, expiresAt: Date)? {
         guard await validAccessToken() != nil, let tokens = tokenStore.load() else { return nil }
-        return (tokens.accessToken, tokens.expiresAt)
+        return (tokens.accessToken, tokens.refreshToken, tokens.expiresAt)
     }
 
     /// Returns a valid access token, refreshing if it is near expiry. `nil` if

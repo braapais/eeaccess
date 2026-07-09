@@ -144,12 +144,24 @@ final class PhoneSyncService: NSObject, ObservableObject, WCSessionDelegate {
     /// wins) rather than a queued transfer — the watch only needs the freshest
     /// token. The watch can't refresh, so the phone re-syncs whenever it's
     /// active.
-    func sendTeslaCloudSession(accessToken: String, expiresAt: Date, baseURL: String) {
+    func sendTeslaCloudSession(
+        accessToken: String,
+        refreshToken: String,
+        expiresAt: Date,
+        baseURL: String,
+        clientID: String,
+        clientSecret: String
+    ) {
         guard session.activationState == .activated else { return }
+        // The refresh token + credentials let the watch refresh the access
+        // token itself over LTE/WiFi (no phone). Device-only channel/storage.
         let context: [String: Any] = [
             "teslaAccessToken": accessToken,
+            "teslaRefreshToken": refreshToken,
             "teslaExpiresAt": expiresAt.timeIntervalSince1970,
             "teslaBaseURL": baseURL,
+            "teslaClientID": clientID,
+            "teslaClientSecret": clientSecret,
         ]
         try? session.updateApplicationContext(context)
     }

@@ -61,8 +61,11 @@ struct EEAccessApp: App {
         if let session = await fleetAuth.sessionForSync() {
             sync.sendTeslaCloudSession(
                 accessToken: session.accessToken,
+                refreshToken: session.refreshToken,
                 expiresAt: session.expiresAt,
-                baseURL: base
+                baseURL: base,
+                clientID: TeslaFleetConfig.clientID,
+                clientSecret: TeslaFleetConfig.clientSecret
             )
         }
     }

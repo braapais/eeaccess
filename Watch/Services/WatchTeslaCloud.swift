@@ -22,22 +22,98 @@ final class WatchTeslaCloud {
     private(set) var lastError: String?
 
     private var accessToken: String?
+    private var refreshToken: String?
     private var expiresAt: Date?
     private var baseURL: String?
+    private var clientID: String?
+    private var clientSecret: String?
+
+    private let tokenEndpoint = URL(string: "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token")!
 
     /// A usable session exists (token present, host known).
     var hasSession: Bool { accessToken?.isEmpty == false && baseURL != nil }
-    /// The synced token has expired — the phone needs to sync a fresh one.
+    /// The synced token has expired.
     var tokenExpired: Bool {
         guard let expiresAt else { return false }
         return Date() >= expiresAt
     }
+    /// True if the watch has what it needs to refresh the token itself.
+    var canRefresh: Bool {
+        !(refreshToken?.isEmpty ?? true) && !(clientID?.isEmpty ?? true)
+    }
+    /// Whole hours the current token is still valid for (for a fresh indicator).
+    var hoursRemaining: Int {
+        guard let expiresAt else { return 0 }
+        return max(0, Int(expiresAt.timeIntervalSinceNow / 3600))
+    }
 
-    /// Applies the session the iPhone synced (access token, expiry, region host).
-    func applySession(accessToken: String, expiresAt: Date, baseURL: String) {
-        self.accessToken = accessToken
-        self.expiresAt = expiresAt
+    /// Applies the session the iPhone synced (tokens, region host, credentials).
+    func applySession(
+        accessToken: String,
+        refreshToken: String,
+        expiresAt: Date,
+        baseURL: String,
+        clientID: String,
+        clientSecret: String
+    ) {
+        // Never downgrade a locally-refreshed newer token with an older synced
+        // one (the phone may re-send a stale context).
+        if let current = self.expiresAt, current > expiresAt, self.baseURL == baseURL {
+            // keep our fresher access token, but adopt any newer credentials
+        } else {
+            self.accessToken = accessToken
+            self.expiresAt = expiresAt
+        }
+        self.refreshToken = refreshToken
         self.baseURL = baseURL
+        self.clientID = clientID
+        self.clientSecret = clientSecret
+    }
+
+    /// Refreshes the access token directly with Tesla over LTE/WiFi (no phone)
+    /// when it's within 5 minutes of expiry. Called on app open and before
+    /// each command. Returns whether a usable (non-expired) token is in hand.
+    @discardableResult
+    func ensureFreshToken() async -> Bool {
+        guard let expiresAt else { return accessToken?.isEmpty == false }
+        if Date() < expiresAt.addingTimeInterval(-300) { return true }   // >5 min left
+        if await refresh() { return true }
+        return Date() < expiresAt                                        // still valid?
+    }
+
+    /// Directly exchanges the refresh token for a new access token.
+    @discardableResult
+    func refresh() async -> Bool {
+        guard let refreshToken, !refreshToken.isEmpty,
+              let clientID, !clientID.isEmpty else { return false }
+        var form = [
+            "grant_type": "refresh_token",
+            "client_id": clientID,
+            "refresh_token": refreshToken,
+        ]
+        if let clientSecret, !clientSecret.isEmpty { form["client_secret"] = clientSecret }
+        var request = URLRequest(url: tokenEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = form
+            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? $0.value)" }
+            .joined(separator: "&")
+            .data(using: .utf8)
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let decoded = try? JSONDecoder().decode(RefreshResponse.self, from: data) else {
+            return false
+        }
+        accessToken = decoded.access_token
+        expiresAt = Date().addingTimeInterval(TimeInterval(decoded.expires_in))
+        if let newRefresh = decoded.refresh_token, !newRefresh.isEmpty { self.refreshToken = newRefresh }
+        return true
+    }
+
+    private struct RefreshResponse: Decodable {
+        let access_token: String
+        let expires_in: Int
+        let refresh_token: String?
     }
 
     // MARK: - Commands
@@ -72,10 +148,14 @@ final class WatchTeslaCloud {
 
     private func run(_ label: String, _ work: @escaping () async throws -> Void) async {
         guard !isBusy else { return }
-        guard hasSession else { lastError = "Open EEAccess on your iPhone to enable cloud control."; return }
-        guard !tokenExpired else { lastError = "Session expired — open EEAccess on your iPhone to refresh."; return }
+        guard hasSession else { lastError = "Open EEAccess on your iPhone once to enable cloud control."; return }
         isBusy = true; lastError = nil; status = label
         defer { isBusy = false }
+        guard await ensureFreshToken() else {
+            lastError = "Couldn't refresh your Tesla session — open EEAccess on your iPhone to reconnect."
+            status = nil
+            return
+        }
         do {
             try await work()
             status = "Done"

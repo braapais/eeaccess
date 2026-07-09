@@ -38,9 +38,6 @@ struct WatchTeslaVehicleView: View {
                 if !cloud.hasSession {
                     cloudPrompt("Open EEAccess on your iPhone (Tesla Key) once while signed in to enable cloud control here.")
                 } else {
-                    if cloud.tokenExpired {
-                        cloudPrompt("Session expired — open EEAccess on your iPhone to refresh.")
-                    }
                     Button {
                         Task { await cloud.unlock(vin: vehicle.vin, unsigned: true) }
                     } label: {
@@ -102,6 +99,12 @@ struct WatchTeslaVehicleView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     }
+
+                    if cloud.hoursRemaining > 0 {
+                        Label("Session good for ~\(cloud.hoursRemaining)h", systemImage: "checkmark.circle")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if let status = cloud.status {
@@ -115,6 +118,7 @@ struct WatchTeslaVehicleView: View {
             .disabled(cloud.isBusy)
             .overlay { if cloud.isBusy { ProgressView() } }
         }
+        .task { await cloud.ensureFreshToken() }
     }
 
     private func cloudPrompt(_ text: String) -> some View {

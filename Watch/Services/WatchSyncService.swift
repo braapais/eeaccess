@@ -3,11 +3,15 @@ import WatchConnectivity
 import SwiftData
 
 /// Fleet session the iPhone syncs (application context) so cloud cars work on
-/// the watch standalone.
+/// the watch standalone — including the refresh token + credentials so the
+/// watch can refresh the access token itself.
 struct TeslaCloudSession: Equatable {
     let accessToken: String
+    let refreshToken: String
     let expiresAt: Date
     let baseURL: String
+    let clientID: String
+    let clientSecret: String
 }
 
 final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
@@ -59,8 +63,11 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
               let base = context["teslaBaseURL"] as? String else { return }
         teslaSession = TeslaCloudSession(
             accessToken: token,
+            refreshToken: context["teslaRefreshToken"] as? String ?? "",
             expiresAt: Date(timeIntervalSince1970: exp),
-            baseURL: base
+            baseURL: base,
+            clientID: context["teslaClientID"] as? String ?? "",
+            clientSecret: context["teslaClientSecret"] as? String ?? ""
         )
     }
 

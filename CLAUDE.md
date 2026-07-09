@@ -118,9 +118,13 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   host the iPhone syncs over WatchConnectivity **application context**
   (`PhoneSyncService.sendTeslaCloudSession`, pushed by
   `EEAccessApp.syncTeslaSession` on launch/active; applied in `WatchSyncService`
-  → `WatchTeslaCloud.applySession`). The watch can't refresh tokens (no OAuth
-  there), so if the synced token expires it asks the user to open the iPhone.
-  Still needs the Client ID + partner domain registration to function.
+  → `WatchTeslaCloud.applySession`). The phone also syncs the **refresh token +
+  Client ID/secret**, so the watch refreshes the access token itself directly
+  against Tesla's token endpoint over LTE/WiFi (`WatchTeslaCloud.ensureFreshToken`
+  on app-active + before each command) — fully phone-independent once synced;
+  it only asks to reopen the iPhone if the refresh token is revoked. Those
+  secrets live device-only (synced over the encrypted WC channel). Still needs
+  the Client ID + partner domain registration to function.
 - **Phone↔watch:** VIN/name/role sync over WatchConnectivity
   (`tesla-upsert`/`tesla-delete` file transfers). Watch preserves `isPaired`
   and (once paired) `keyRoleRaw` — the role is baked into the enrolled key.
