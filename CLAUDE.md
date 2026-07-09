@@ -131,6 +131,15 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   — trigger it while you still have signal so the car is ready when you reach a
   no-signal garage. `scheduledSeconds` drives the live countdown/cancel UI; runs
   only while the app is foregrounded (no background execution guarantee).
+- **Relay server (phase 3, `Shared/RelayServer.swift` + `server/`):** optional
+  self-hosted Node relay (`https://eeaccess.elbaeverywhere.com`, HTTP Basic auth,
+  behind nginx on the tailnet box) that holds the Fleet creds and
+  executes/**schedules** commands. `RelayServerStore` (URL/username in
+  UserDefaults, password in Keychain) + `RelayServerClient` (@Observable). When
+  active (`relay.isActive`), iOS per-car cloud controls route through it
+  (`RelayServerView` configures it), and `scheduleUnlockDrive` runs
+  **server-side** (`POST /vehicles/:vin/schedule`) so it fires even if the
+  device goes offline in a garage. Watch relay + settings sync = pending phase.
 - **Phone↔watch:** VIN/name/role sync over WatchConnectivity
   (`tesla-upsert`/`tesla-delete` file transfers). Watch preserves `isPaired`
   and (once paired) `keyRoleRaw` — the role is baked into the enrolled key.

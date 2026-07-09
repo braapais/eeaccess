@@ -13,6 +13,16 @@ struct TeslaKeySettingsView: View {
         Form {
             vehicleSection
             accountSection
+            Section("Server (optional)") {
+                NavigationLink {
+                    RelayServerView()
+                } label: {
+                    Label("Relay server", systemImage: "server.rack")
+                }
+                Text("Route cloud commands through your own server so a scheduled Unlock+Drive fires even when your phone/watch has no signal.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             Section {
                 Text("Pairing the watch as a Bluetooth key happens in the car: open EEAccess on your Apple Watch → Tesla Key → Set Up Key, with that car's Tesla key card. Repeat once per vehicle. The Bluetooth key works with no account and no internet.")
                     .font(.footnote)

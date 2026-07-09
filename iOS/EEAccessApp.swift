@@ -8,6 +8,7 @@ struct EEAccessApp: App {
     @StateObject private var entitlement = EntitlementManager()
     @State private var fleetAuth = TeslaFleetAuth()
     @State private var fleet = TeslaFleetService()
+    @State private var relay = RelayServerClient()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -34,6 +35,7 @@ struct EEAccessApp: App {
             .environmentObject(entitlement)
             .environment(fleetAuth)
             .environment(fleet)
+            .environment(relay)
             .task {
                 await entitlement.refreshEntitlement()
                 await entitlement.loadProduct()

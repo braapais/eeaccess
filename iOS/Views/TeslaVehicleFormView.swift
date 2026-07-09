@@ -9,6 +9,7 @@ struct TeslaVehicleFormView: View {
     @EnvironmentObject private var sync: PhoneSyncService
     @Environment(TeslaFleetService.self) private var fleet
     @Environment(TeslaFleetAuth.self) private var fleetAuth
+    @Environment(RelayServerClient.self) private var relay
     @Query(sort: \TeslaVehicle.createdAt) private var vehicles: [TeslaVehicle]
 
     let vehicle: TeslaVehicle?
@@ -75,7 +76,7 @@ struct TeslaVehicleFormView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            if let vehicle, fleetAuth.isSignedIn {
+            if let vehicle, fleetAuth.isSignedIn || relay.isActive {
                 cloudControl(vehicle)
             }
             if vehicle != nil {
@@ -166,51 +167,93 @@ struct TeslaVehicleFormView: View {
 
     @ViewBuilder
     private func cloudControl(_ vehicle: TeslaVehicle) -> some View {
-        Section("Cloud control") {
-            let vin = vehicle.vin
-            // Pre-2021 S/X accept unsigned commands (no proxy); 2021+ need the
-            // signing proxy at commandBaseURL.
-            let unsigned = vehicle.accessMode == .cloud
-            if let snap = fleet.snapshot {
-                snapshotRows(snap)
+        let vin = vehicle.vin
+        // Pre-2021 S/X accept unsigned commands (no proxy); 2021+ need signing.
+        let unsigned = vehicle.accessMode == .cloud
+        // When the relay server is on, route everything through it — that's what
+        // makes server-side scheduling (offline garage) possible.
+        let useRelay = relay.isActive
+        Section(useRelay ? "Cloud control (via server)" : "Cloud control") {
+            if useRelay, let s = relay.snapshot {
+                snapshotRows(battery: s.batteryLevel, locked: s.locked, online: s.online, inside: s.insideTempC)
+            } else if !useRelay, let s = fleet.snapshot {
+                snapshotRows(battery: s.batteryLevel, locked: s.locked, online: s.online, inside: s.insideTempC)
             }
+
             Button {
-                Task { await fleet.refresh(vin: vin, auth: fleetAuth) }
-            } label: {
-                Label("Refresh state", systemImage: "arrow.clockwise")
-            }
+                Task { useRelay ? await relay.refreshState(vin: vin) : await fleet.refresh(vin: vin, auth: fleetAuth) }
+            } label: { Label("Refresh state", systemImage: "arrow.clockwise") }
             Button {
-                Task { await fleet.wake(vin: vin, auth: fleetAuth) }
-            } label: {
-                Label("Wake", systemImage: "sun.max")
-            }
+                Task { useRelay ? await relay.wake(vin: vin) : await fleet.wake(vin: vin, auth: fleetAuth) }
+            } label: { Label("Wake", systemImage: "sun.max") }
+
             HStack {
                 Button {
-                    Task { await fleet.unlock(vin: vin, auth: fleetAuth, unsigned: unsigned) }
-                } label: {
-                    Label("Unlock", systemImage: "lock.open").frame(maxWidth: .infinity)
-                }
+                    Task { useRelay ? await relay.unlock(vin: vin) : await fleet.unlock(vin: vin, auth: fleetAuth, unsigned: unsigned) }
+                } label: { Label("Unlock", systemImage: "lock.open").frame(maxWidth: .infinity) }
                 Button {
-                    Task { await fleet.lock(vin: vin, auth: fleetAuth, unsigned: unsigned) }
-                } label: {
-                    Label("Lock", systemImage: "lock").frame(maxWidth: .infinity)
-                }
+                    Task { useRelay ? await relay.lock(vin: vin) : await fleet.lock(vin: vin, auth: fleetAuth, unsigned: unsigned) }
+                } label: { Label("Lock", systemImage: "lock").frame(maxWidth: .infinity) }
             }
             .buttonStyle(.bordered)
+
             Button {
-                Task { await fleet.startDrive(vin: vin, auth: fleetAuth, unsigned: unsigned) }
-            } label: {
-                Label("Start Drive", systemImage: "steeringwheel").frame(maxWidth: .infinity)
-            }
+                Task { useRelay ? await relay.drive(vin: vin) : await fleet.startDrive(vin: vin, auth: fleetAuth, unsigned: unsigned) }
+            } label: { Label("Start Drive", systemImage: "steeringwheel").frame(maxWidth: .infinity) }
             .buttonStyle(.bordered)
             .tint(.blue)
 
+            scheduleControls(vin: vin, unsigned: unsigned, useRelay: useRelay)
+
+            HStack {
+                Button {
+                    Task { useRelay ? await relay.climateOn(vin: vin) : await fleet.climateOn(vin: vin, auth: fleetAuth, unsigned: unsigned) }
+                } label: { Label("Climate On", systemImage: "fan").frame(maxWidth: .infinity) }
+                Button {
+                    Task { useRelay ? await relay.climateOff(vin: vin) : await fleet.climateOff(vin: vin, auth: fleetAuth, unsigned: unsigned) }
+                } label: { Label("Off", systemImage: "fan.slash").frame(maxWidth: .infinity) }
+            }
+            .buttonStyle(.bordered)
+
+            if let status = useRelay ? relay.status : fleet.status {
+                Text(status).font(.footnote).foregroundStyle(.secondary)
+            }
+            if let error = useRelay ? relay.lastError : fleet.lastError {
+                Text(error).font(.footnote).foregroundStyle(.red)
+            }
+        }
+        .disabled(useRelay ? relay.isBusy : fleet.isBusy)
+        .onAppear { if useRelay { Task { await relay.refreshSchedules() } } }
+    }
+
+    @ViewBuilder
+    private func scheduleControls(vin: String, unsigned: Bool, useRelay: Bool) -> some View {
+        if useRelay {
+            if relay.pendingSchedule != nil {
+                Button(role: .destructive) {
+                    Task { await relay.cancelSchedule() }
+                } label: {
+                    Label("Cancel scheduled Unlock & Drive", systemImage: "xmark.circle").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button {
+                    Task { await relay.scheduleUnlockDrive(vin: vin, delay: 60) }
+                } label: {
+                    Label("Unlock & Drive in 60s (server)", systemImage: "timer").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+            }
+            Text("Runs on your server — fires even if this phone loses signal in the garage.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        } else {
             if let secs = fleet.scheduledSeconds {
                 Button(role: .destructive) {
                     fleet.cancelSchedule()
                 } label: {
-                    Label("Cancel — Unlock & Drive in \(secs)s", systemImage: "xmark.circle")
-                        .frame(maxWidth: .infinity)
+                    Label("Cancel — Unlock & Drive in \(secs)s", systemImage: "xmark.circle").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
             } else {
@@ -222,39 +265,18 @@ struct TeslaVehicleFormView: View {
                 .buttonStyle(.bordered)
                 .tint(.orange)
             }
-            Text("Tap while you still have signal, then walk to the car — it sends Unlock + Start Drive in 60s. Keep this screen open.")
+            Text("Tap while you still have signal, then walk to the car. Keep this screen open (fires on this device).")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-
-            HStack {
-                Button {
-                    Task { await fleet.climateOn(vin: vin, auth: fleetAuth, unsigned: unsigned) }
-                } label: {
-                    Label("Climate On", systemImage: "fan").frame(maxWidth: .infinity)
-                }
-                Button {
-                    Task { await fleet.climateOff(vin: vin, auth: fleetAuth, unsigned: unsigned) }
-                } label: {
-                    Label("Off", systemImage: "fan.slash").frame(maxWidth: .infinity)
-                }
-            }
-            .buttonStyle(.bordered)
-            if let status = fleet.status {
-                Text(status).font(.footnote).foregroundStyle(.secondary)
-            }
-            if let error = fleet.lastError {
-                Text(error).font(.footnote).foregroundStyle(.red)
-            }
         }
-        .disabled(fleet.isBusy)
     }
 
-    private func snapshotRows(_ snap: TeslaFleetService.Snapshot) -> some View {
+    private func snapshotRows(battery: Int?, locked: Bool?, online: Bool?, inside: Double?) -> some View {
         Group {
-            if let b = snap.batteryLevel { LabeledContent("Battery", value: "\(b)%") }
-            if let l = snap.locked { LabeledContent("Locked", value: l ? "Yes" : "No") }
-            if let o = snap.online { LabeledContent("State", value: o ? "Online" : "Asleep") }
-            if let t = snap.insideTempC { LabeledContent("Inside", value: "\(Int(t))°C") }
+            if let battery { LabeledContent("Battery", value: "\(battery)%") }
+            if let locked { LabeledContent("Locked", value: locked ? "Yes" : "No") }
+            if let online { LabeledContent("State", value: online ? "Online" : "Asleep") }
+            if let inside { LabeledContent("Inside", value: "\(Int(inside))°C") }
         }
     }
 
