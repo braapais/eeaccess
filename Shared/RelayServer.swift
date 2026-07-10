@@ -145,12 +145,61 @@ final class RelayServerClient {
         }
     }
 
-    func wake(vin: String) async { await run("Waking…") { _ = try await self.post("/vehicles/\(vin)/wake") } }
+    /// `wake_up` only REQUESTS a wake — Tesla can take up to ~30s to actually
+    /// bring the car online, so a flat "Done" right after looks like nothing
+    /// happened. Polls vehicle state afterward so the UI shows real progress.
+    func wake(vin: String) async {
+        guard !isBusy else { return }
+        guard isActive else { lastError = "Connect to the relay first."; return }
+        isBusy = true; lastError = nil; status = "Waking…"
+        defer { isBusy = false }
+        do {
+            _ = try await self.post("/vehicles/\(vin)/wake")
+        } catch {
+            lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            status = nil
+            return
+        }
+        await pollUntilAwake(vin: vin)
+    }
+
+    /// A 408 here just means "still asleep," so it's swallowed and retried
+    /// rather than surfaced — only the final timeout is shown to the user.
+    private func pollUntilAwake(vin: String, attempts: Int = 10) async {
+        for attempt in 1...attempts {
+            status = "Waking… (\(attempt * 3)s)"
+            try? await Task.sleep(for: .seconds(3))
+            guard let d: VehicleDataResponse = try? await self.get("/vehicles/\(vin)/state") else { continue }
+            if d.response.state == "online" {
+                snapshot = Snapshot(
+                    batteryLevel: d.response.charge_state?.battery_level,
+                    locked: d.response.vehicle_state?.locked,
+                    online: true,
+                    insideTempC: d.response.climate_state?.inside_temp
+                )
+                status = "Awake"
+                return
+            }
+        }
+        status = "Still asleep — try again in a moment"
+    }
+
     func unlock(vin: String) async { await run("Unlocking…") { _ = try await self.post("/vehicles/\(vin)/unlock") } }
     func lock(vin: String) async { await run("Locking…") { _ = try await self.post("/vehicles/\(vin)/lock") } }
     func drive(vin: String) async { await run("Enabling drive…") { _ = try await self.post("/vehicles/\(vin)/drive") } }
     func climateOn(vin: String) async { await run("Starting climate…") { _ = try await self.post("/vehicles/\(vin)/climate_on") } }
     func climateOff(vin: String) async { await run("Stopping climate…") { _ = try await self.post("/vehicles/\(vin)/climate_off") } }
+
+    /// Immediately unlocks then enables drive, back to back — no delay. The
+    /// scheduled `scheduleUnlockDrive` below is for triggering ahead of time
+    /// before losing signal; this is for when you're already at the car.
+    func unlockAndDrive(vin: String) async {
+        await run("Unlocking…") {
+            _ = try await self.post("/vehicles/\(vin)/unlock")
+            self.status = "Enabling drive…"
+            _ = try await self.post("/vehicles/\(vin)/drive")
+        }
+    }
 
     /// Schedules Unlock+Drive on the SERVER — fires even if this device goes
     /// offline. Stores the pending schedule (keyed by VIN) for the

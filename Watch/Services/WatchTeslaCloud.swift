@@ -133,8 +133,50 @@ final class WatchTeslaCloud {
         }
     }
 
+    /// `wake_up` only REQUESTS a wake — Tesla can take up to ~30s to actually
+    /// bring the car online, so a flat "Done" right after looks like nothing
+    /// happened. Polls vehicle state afterward so the UI shows real progress.
     func wake(vin: String) async {
-        await run("Waking…") { _ = try await self.post("/api/1/vehicles/\(vin)/wake_up") }
+        guard !isBusy else { return }
+        guard hasSession else { lastError = "Open EEAccess on your iPhone once to enable cloud control."; return }
+        isBusy = true; lastError = nil; status = "Waking…"
+        defer { isBusy = false }
+        guard await ensureFreshToken() else {
+            lastError = "Couldn't refresh your Tesla session — open EEAccess on your iPhone to reconnect."
+            status = nil
+            return
+        }
+        do {
+            _ = try await self.post("/api/1/vehicles/\(vin)/wake_up")
+        } catch {
+            lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            status = nil
+            return
+        }
+        await pollUntilAwake(vin: vin)
+    }
+
+    /// A 408 here just means "still asleep," so it's swallowed and retried
+    /// rather than surfaced — only the final timeout is shown to the user.
+    private func pollUntilAwake(vin: String, attempts: Int = 10) async {
+        for attempt in 1...attempts {
+            status = "Waking… (\(attempt * 3)s)"
+            try? await Task.sleep(for: .seconds(3))
+            guard let data: VehicleDataResponse = try? await self.get("/api/1/vehicles/\(vin)/vehicle_data") else {
+                continue
+            }
+            if data.response.state == "online" {
+                snapshot = Snapshot(
+                    batteryLevel: data.response.charge_state?.battery_level,
+                    locked: data.response.vehicle_state?.locked,
+                    online: true,
+                    insideTempC: data.response.climate_state?.inside_temp
+                )
+                status = "Awake"
+                return
+            }
+        }
+        status = "Still asleep — try again in a moment"
     }
 
     // Only ever called for `.cloud`-mode vehicles (see WatchTeslaVehicleView),
@@ -145,6 +187,17 @@ final class WatchTeslaCloud {
     func startDrive(vin: String) async { await command(vin, "remote_start_drive", "Enabling drive…") }
     func climateOn(vin: String) async { await command(vin, "auto_conditioning_start", "Starting climate…") }
     func climateOff(vin: String) async { await command(vin, "auto_conditioning_stop", "Stopping climate…") }
+
+    /// Immediately unlocks then enables drive, back to back — no delay. The
+    /// scheduled `scheduleUnlockDrive` below is for triggering ahead of time
+    /// before losing signal; this is for when you're already at the car.
+    func unlockAndDrive(vin: String) async {
+        await run("Unlocking…") {
+            _ = try await self.post("/api/1/vehicles/\(vin)/command/door_unlock")
+            self.status = "Enabling drive…"
+            _ = try await self.post("/api/1/vehicles/\(vin)/command/remote_start_drive")
+        }
+    }
 
     // MARK: - Scheduled (garage dead-zone) unlock + drive
 

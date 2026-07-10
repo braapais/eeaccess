@@ -33,7 +33,7 @@ struct TeslaVehicleFormView: View {
 
     var body: some View {
         Form {
-            if vehicle == nil, fleetAuth.isSignedIn {
+            if vehicle == nil, fleetAuth.isSignedIn || relay.isActive {
                 accountVehiclesSection
             }
             Section("Vehicle") {
@@ -41,6 +41,19 @@ struct TeslaVehicleFormView: View {
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                 TextField("Name", text: $name)
+                if vehicle != nil, fleetAuth.isSignedIn || relay.isActive {
+                    Button {
+                        Task { await importNameFromTesla() }
+                    } label: {
+                        if importingName {
+                            HStack { ProgressView(); Text("Looking up…") }
+                        } else {
+                            Label("Get name from Tesla", systemImage: "arrow.down.doc")
+                        }
+                    }
+                    .font(.footnote)
+                    .disabled(cleanVIN.count != 17 || importingName)
+                }
                 Picker("Access", selection: $accessMode) {
                     ForEach(TeslaAccessMode.allCases, id: \.self) { mode in
                         Text(mode.title).tag(mode)
@@ -103,8 +116,12 @@ struct TeslaVehicleFormView: View {
                 accessMode = vehicle.accessMode
             } else {
                 if name.isEmpty { name = "Tesla" }
-                // Pull the account's cars so the user can pick instead of typing.
-                if fleetAuth.isSignedIn, fleet.accountVehicles.isEmpty {
+                // Pull the account's cars so the user can pick instead of typing —
+                // prefer the relay (works with no separate BYOC connection) but
+                // fall back to the direct Tesla account if that's what's signed in.
+                if relay.isActive, relay.accountVehicles.isEmpty {
+                    Task { await relay.fetchVehicles() }
+                } else if fleetAuth.isSignedIn, fleet.accountVehicles.isEmpty {
                     Task { await fleet.fetchVehicles(auth: fleetAuth) }
                 }
             }
@@ -113,13 +130,33 @@ struct TeslaVehicleFormView: View {
 
     // MARK: - Import from account
 
+    /// Common shape over the two possible sources (relay vs. direct BYOC) so
+    /// the import UI doesn't need to care which one is active.
+    private struct AccountVehicle: Identifiable {
+        let vin: String
+        let displayName: String
+        var id: String { vin }
+    }
+
+    private var accountVehicles: [AccountVehicle] {
+        if relay.isActive {
+            return relay.accountVehicles.map { AccountVehicle(vin: $0.vin, displayName: $0.displayName) }
+        }
+        return fleet.accountVehicles.map { AccountVehicle(vin: $0.vin, displayName: $0.displayName) }
+    }
+    private var accountIsBusy: Bool { relay.isActive ? relay.isBusy : fleet.isBusy }
+    private var accountError: String? { relay.isActive ? relay.lastError : fleet.lastError }
+    private func refreshAccountVehicles() async {
+        if relay.isActive { await relay.fetchVehicles() } else { await fleet.fetchVehicles(auth: fleetAuth) }
+    }
+
     @ViewBuilder
     private var accountVehiclesSection: some View {
         Section("From your Tesla account") {
-            if fleet.accountVehicles.isEmpty {
-                if fleet.isBusy {
+            if accountVehicles.isEmpty {
+                if accountIsBusy {
                     HStack { ProgressView(); Text("Loading your vehicles…") }
-                } else if let error = fleet.lastError {
+                } else if let error = accountError {
                     Text(error)
                         .font(.footnote)
                         .foregroundStyle(.red)
@@ -129,7 +166,7 @@ struct TeslaVehicleFormView: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                ForEach(fleet.accountVehicles) { fv in
+                ForEach(accountVehicles) { fv in
                     Button {
                         vin = fv.vin
                         name = fv.displayName
@@ -151,17 +188,29 @@ struct TeslaVehicleFormView: View {
                     }
                 }
             }
-            if let base = fleet.resolvedBaseURL {
+            if !relay.isActive, let base = fleet.resolvedBaseURL {
                 Text("Region host: \(base.replacingOccurrences(of: "https://", with: ""))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             Button {
-                Task { await fleet.fetchVehicles(auth: fleetAuth) }
+                Task { await refreshAccountVehicles() }
             } label: {
                 Label("Refresh list", systemImage: "arrow.clockwise")
             }
             .font(.footnote)
+        }
+    }
+
+    /// Looks up this VIN on whichever Tesla connection is active and, if
+    /// found, fills the Name field with Tesla's own display name for it.
+    @State private var importingName = false
+    private func importNameFromTesla() async {
+        importingName = true
+        defer { importingName = false }
+        await refreshAccountVehicles()
+        if let match = accountVehicles.first(where: { $0.vin == cleanVIN }) {
+            name = match.displayName
         }
     }
 
@@ -204,6 +253,18 @@ struct TeslaVehicleFormView: View {
                 Task { useRelay ? await relay.drive(vin: vin) : await fleet.startDrive(vin: vin, auth: fleetAuth, unsigned: unsigned) }
             } label: { Label("Start Drive", systemImage: "steeringwheel").frame(maxWidth: .infinity) }
             .buttonStyle(.bordered)
+            .tint(.blue)
+
+            Button {
+                Task {
+                    if useRelay {
+                        await relay.unlockAndDrive(vin: vin)
+                    } else {
+                        await fleet.unlockAndDrive(vin: vin, auth: fleetAuth, unsigned: unsigned)
+                    }
+                }
+            } label: { Label("Unlock & Drive", systemImage: "bolt.car").frame(maxWidth: .infinity) }
+            .buttonStyle(.borderedProminent)
             .tint(.blue)
 
             scheduleControls(vin: vin, unsigned: unsigned, useRelay: useRelay)

@@ -86,9 +86,63 @@ final class TeslaFleetService {
         }
     }
 
+    /// `wake_up` only REQUESTS a wake — Tesla can take up to ~30s to actually
+    /// bring the car online, so a flat "Done" right after the POST looks like
+    /// nothing happened. Polls vehicle state afterward so the UI shows real
+    /// progress instead.
     func wake(vin: String, auth: TeslaFleetAuth) async {
-        await run("Waking…") {
+        guard !isBusy else { return }
+        isBusy = true; lastError = nil; status = "Waking…"
+        defer { isBusy = false }
+        do {
             _ = try await self.post("/api/1/vehicles/\(vin)/wake_up", auth: auth, command: false)
+        } catch {
+            lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            status = nil
+            return
+        }
+        await pollUntilAwake(vin: vin, auth: auth)
+    }
+
+    /// Polls every 3s (up to ~30s) until the vehicle reports online. A 408
+    /// here just means "still asleep," so any error is swallowed and retried
+    /// rather than surfaced — only the final timeout is shown to the user.
+    private func pollUntilAwake(vin: String, auth: TeslaFleetAuth, attempts: Int = 10) async {
+        for attempt in 1...attempts {
+            status = "Waking… (\(attempt * 3)s)"
+            try? await Task.sleep(for: .seconds(3))
+            guard let data: VehicleDataResponse = try? await self.get("/api/1/vehicles/\(vin)/vehicle_data", auth: auth) else {
+                continue
+            }
+            if data.response.state == "online" {
+                snapshot = Snapshot(
+                    batteryLevel: data.response.charge_state?.battery_level,
+                    locked: data.response.vehicle_state?.locked,
+                    online: true,
+                    insideTempC: data.response.climate_state?.inside_temp
+                )
+                status = "Awake"
+                return
+            }
+        }
+        status = "Still asleep — try again in a moment"
+    }
+
+    /// Immediately unlocks then enables drive, back to back — no delay. The
+    /// scheduled `scheduleUnlockDrive` below is for triggering ahead of time
+    /// before losing signal; this is for when you're already at the car.
+    func unlockAndDrive(vin: String, auth: TeslaFleetAuth, unsigned: Bool = false) async {
+        guard !isBusy else { return }
+        isBusy = true; lastError = nil; status = "Unlocking…"
+        defer { isBusy = false }
+        do {
+            _ = try await self.post("/api/1/vehicles/\(vin)/command/door_unlock", auth: auth, command: !unsigned)
+            status = "Enabling drive…"
+            _ = try await self.post("/api/1/vehicles/\(vin)/command/remote_start_drive", auth: auth, command: !unsigned)
+            status = "Done"
+        } catch {
+            lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            status = nil
         }
     }
 

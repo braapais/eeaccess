@@ -102,7 +102,16 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   so proximity re-entries don't re-fire either.
 - **Cloud (iOS, optional):** `TeslaFleetAuth` (OAuth PKCE) + `TeslaFleetService`
   (state/wake direct; lock/unlock/climate need `commandBaseURL` pointed at a
-  running `tesla-http-proxy` for 2021+ signed cars).
+  running `tesla-http-proxy` for 2021+ signed cars). **Wake polls after the
+  request**: `wake_up` only asks Tesla to wake the car (can take up to ~30s),
+  so `wake()` follows up with `pollUntilAwake` — 3s-interval `vehicle_data`
+  polls (up to ~10, swallowing the expected 408s while still asleep) — instead
+  of a flat "Done" that looks like nothing happened. Same pattern in
+  `WatchTeslaCloud.wake` and `RelayServerClient.wake`. **Immediate combo:**
+  `unlockAndDrive(vin:)` on all three clients sends Unlock then Start Drive
+  back-to-back with no delay (the "Unlock & Drive" button) — distinct from the
+  scheduled version, which is for triggering ahead of time before losing
+  signal.
 - **Bring-your-own credentials:** the Fleet Client ID is NOT shipped — each
   user registers their own developer.tesla.com app and enters the Client ID
   (+ optional secret, region, redirect URI) in `TeslaCredentialsView`, persisted
@@ -190,10 +199,15 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
 - **Multiple vehicles:** `TeslaVehicle` records are keyed by VIN (unique); the
   app supports more than one car. iPhone: `TeslaKeySettingsView` lists vehicles
   → `TeslaVehicleFormView` add/edit each; **cloud commands are per-car** in that
-  view (Refresh/Wake/Lock/Unlock/Start Drive/Climate, shown when signed in;
-  Start Drive = Fleet `remote_start_drive`), not a global section. Add Vehicle imports the signed-in account's cars
-  (`TeslaFleetService.fetchVehicles` → `GET /api/1/vehicles`) so the VIN is
-  picked, not typed. Watch: `WatchTeslaKeyView` routes none→setup / one→direct /
+  view (Refresh/Wake/Unlock/Lock/Start Drive/**Unlock & Drive**/Climate, shown
+  when signed in), not a global section. Add Vehicle imports the connected
+  account's cars — checks the **relay first, then direct BYOC**
+  (`accountVehicles` picks whichever is active; either source needs a
+  registered/connected Tesla session) — so the VIN is picked, not typed, and
+  the display name comes straight from Tesla. Editing an existing vehicle also
+  has a standalone **"Get name from Tesla"** button (`importNameFromTesla`) to
+  pull the real name in later without re-adding the car; the Name field is
+  otherwise a plain editable rename. Watch: `WatchTeslaKeyView` routes none→setup / one→direct /
   many→list, with per-car controls in `WatchTeslaVehicleView`;
   `WatchPairingView(vehicle:)` pairs a specific car (nil = add new). One BLE
   connection and one `TeslaPresenceScanner` are active at a time (the car whose

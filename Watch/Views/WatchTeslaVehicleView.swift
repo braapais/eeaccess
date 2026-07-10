@@ -71,6 +71,14 @@ struct WatchTeslaVehicleView: View {
                 .buttonStyle(.bordered)
                 .tint(.blue)
 
+                Button {
+                    Task { await relay.unlockAndDrive(vin: vehicle.vin) }
+                } label: {
+                    Label("Unlock & Drive", systemImage: "bolt.car").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+
                 if relay.pendingSchedule(for: vehicle.vin) != nil {
                     Button(role: .destructive) {
                         Task { await relay.cancelSchedule(vin: vehicle.vin) }
@@ -176,6 +184,14 @@ struct WatchTeslaVehicleView: View {
                         Label("Start Drive", systemImage: "steeringwheel").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+                    .tint(.blue)
+
+                    Button {
+                        Task { await cloud.unlockAndDrive(vin: vehicle.vin) }
+                    } label: {
+                        Label("Unlock & Drive", systemImage: "bolt.car").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
                     .tint(.blue)
 
                     if let secs = cloud.scheduledSeconds {
