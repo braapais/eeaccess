@@ -134,31 +134,56 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   — trigger it while you still have signal so the car is ready when you reach a
   no-signal garage. `scheduledSeconds` drives the live countdown/cancel UI; runs
   only while the app is foregrounded (no background execution guarantee).
-- **Relay server (phase 3, `Shared/RelayServer.swift` + `server/`):** optional
-  self-hosted Node relay (`https://eeaccess.elbaeverywhere.com`, HTTP Basic auth,
-  behind nginx on the tailnet box) that holds the Fleet creds and
-  executes/**schedules** commands. `RelayServerStore` (URL/username in
-  UserDefaults, password in Keychain) + `RelayServerClient` (@Observable). When
-  active (`relay.isActive`), iOS per-car cloud controls route through it
-  (`RelayServerView` configures it), and `scheduleUnlockDrive` runs
-  **server-side** (`POST /vehicles/:vin/schedule`) so it fires even if the
-  device goes offline in a garage. Settings sync phone→watch
-  (`PhoneSyncService.sendRelaySettings` file transfer → `WatchSyncService`
-  writes `RelayServerStore`, bumps `relaySettingsVersion` → `reloadSettings()`);
-  when active, the watch's cloud car routes through the relay too
-  (`WatchTeslaVehicleView.relayControls`) — simpler than the direct token-sync
-  path (just Basic auth, no token refresh on the watch). Relay only ever sends
-  **unsigned** commands, so it's gated to `.cloud`-mode vehicles on both iOS
-  (`useRelay = relay.isActive && vehicle.accessMode == .cloud`) and watch
-  (cloud screen only reachable for `.cloud` cars) — a 2021+ car always falls
-  back to the direct signed/unsigned-aware `TeslaFleetService` path so a
-  signing-required failure is visible, not a silently-dropped schedule.
-  Schedules are per-VIN (`scheduledByVIN`, not a single shared slot) and
-  **persisted server-side** (`server/schedules.json`) so a pending Unlock+Drive
-  survives a service restart — re-armed on boot, fired immediately if overdue
-  within a 15-min grace window. Server auth uses constant-time comparison
+- **Relay server (phase 3, `Shared/RelayServer.swift` + `iOS/Services/RelayAuth.swift`
+  + `server/`):** a shared, centrally-hosted, **multi-tenant** Node relay
+  (`https://eeaccess.elbaeverywhere.com`, nginx TLS in front of `127.0.0.1:8737`
+  on the tailnet box) — built-in, available to every user, no server to run.
+  One shared Tesla Developer app (`server/config.json`'s `clientId`/`clientSecret`)
+  so users never register their own, but each user gets their own Tesla OAuth
+  session — own refresh token, own vehicles — in their own `server/users/<uuid>.json`.
+  **No username or password anywhere**: `RelayAuth` (iOS-only —
+  `ASWebAuthenticationSession`, watchOS has none) drives a server-mediated
+  OAuth dance (`GET /oauth/start` → Tesla login → Tesla redirects to the
+  *server's* `/oauth/callback`, not the app, so the shared Client Secret never
+  reaches the binary → a bounce page hands `code`+`state` to the app via
+  `eeaccess://tesla/relay-callback` → app posts `POST /oauth/complete` → server
+  does the real exchange and returns a random per-user **API key**, auto-
+  provisioned, stored in Keychain via `RelayServerStore`). `RelayServerClient`
+  (@Observable, in `Shared/`) sends that key as `Authorization: Bearer` and
+  works unmodified on both platforms. Every `vin`-scoped server request
+  verifies the VIN actually belongs to the caller's own Tesla account
+  (`assertOwnsVehicle`, refreshed from Tesla if not cached) so one user can't
+  steer commands at another user's car; requests are rate-limited per user
+  (30/min) to bound the blast radius of a runaway client against the shared
+  Tesla app's standing — **Tesla scopes suspension to the whole Client ID, not
+  the offending user**, so a limit here protects everyone, including this
+  app's own cars. `DELETE /account` self-service-deletes a user's server-side
+  data (works even while rate-limited — the escape hatch a stuck client
+  needs). When active (`relay.isActive`), iOS per-car cloud controls route
+  through it (`RelayServerView` — Connect/Disconnect only, nothing to type),
+  and `scheduleUnlockDrive` runs **server-side** (`POST /vehicles/:vin/schedule`)
+  so it fires even if the device goes offline in a garage. Settings sync
+  phone→watch is now just `{enabled, apiKey}` (`PhoneSyncService.sendRelaySettings`
+  file transfer → `WatchSyncService` writes `RelayServerStore`, bumps
+  `relaySettingsVersion` → `reloadSettings()`); the watch's cloud car routes
+  through the relay too (`WatchTeslaVehicleView.relayControls`) — simpler than
+  the direct token-sync path (no refresh logic needed on the watch at all, the
+  relay handles it). Relay only ever sends **unsigned** commands, so it's
+  gated to `.cloud`-mode vehicles on both iOS (`useRelay = relay.isActive &&
+  vehicle.accessMode == .cloud`) and watch (cloud screen only reachable for
+  `.cloud` cars) — a 2021+ car always falls back to the direct signed/unsigned-
+  aware `TeslaFleetService` path so a signing-required failure is visible, not
+  a silently-dropped schedule. Schedules are per-user+VIN and **persisted
+  server-side** (`server/schedules.json`) so a pending Unlock+Drive survives a
+  service restart — re-armed on boot, fired immediately if overdue within a
+  15-min grace window. Server auth uses constant-time comparison
   (`timingSafeEqual`) and forwards Tesla's real upstream status (e.g. 408 =
-  asleep) instead of flattening every failure to 502.
+  asleep, 403 = not your car) instead of flattening every failure to 502.
+  **Setup dependency:** the shared Tesla app must have
+  `https://eeaccess.elbaeverywhere.com/oauth/callback` registered as an
+  Allowed Redirect URI at developer.tesla.com (manual, one-time, in addition
+  to the existing `braapais.github.io/tesla/manual/` redirect used for the
+  developer's own original single-tenant setup).
 - **Phone↔watch:** VIN/name/role sync over WatchConnectivity
   (`tesla-upsert`/`tesla-delete` file transfers). Watch preserves `isPaired`
   and (once paired) `keyRoleRaw` — the role is baked into the enrolled key.

@@ -1,42 +1,55 @@
 import Foundation
 import Observation
 
-/// Settings for the optional self-hosted relay server. When enabled, the app
-/// sends cloud commands to your server (e.g. https://eeaccess.elbaeverywhere.com)
-/// instead of Tesla directly — so a scheduled Unlock+Drive fires *server-side*
-/// even when the phone/watch has no signal in a garage. Non-secret fields in
-/// UserDefaults; the password in the Keychain (device-only).
+/// The shared, centrally-hosted EEAccess Tesla relay. Not user-editable —
+/// there's exactly one, so there's nothing to type. It holds one shared Tesla
+/// Developer app; each user's own Tesla sign-in is a separate session on the
+/// server, identified by an auto-provisioned per-device API key.
+enum RelayServerConfig {
+    static let baseURL = "https://eeaccess.elbaeverywhere.com"
+    /// Custom scheme the relay's OAuth bounce page redirects back into (see
+    /// server.mjs's `/oauth/callback`). Distinct path from the direct BYOC
+    /// flow's `eeaccess://tesla/callback` so the two can't be confused.
+    static let callbackScheme = "eeaccess"
+}
+
+/// Local relay session state. No username or password: `apiKey` is a random
+/// token auto-provisioned by the relay during Tesla sign-in (see `RelayAuth`
+/// on iOS) and never chosen or typed by the user. Non-secret fields in
+/// UserDefaults; the key itself in the Keychain (device-only).
 struct RelayServerStore {
     private let defaults = UserDefaults.standard
     private let enabledKey = "Relay.enabled"
-    private let baseKey = "Relay.baseURL"
-    private let userKey = "Relay.username"
+    private let userIdKey = "Relay.userId"
     private let keychainService = (Bundle.main.bundleIdentifier ?? "com.elbaeverywhere.eeaccess") + ".relay"
-    private let keychainAccount = "password"
+    private let keychainAccount = "apiKey"
 
+    /// User-facing on/off switch — independent of whether they're registered,
+    /// so they can pause using the relay without losing their server-side data.
     var enabled: Bool {
         get { defaults.bool(forKey: enabledKey) }
         nonmutating set { defaults.set(newValue, forKey: enabledKey) }
     }
-    var baseURL: String {
-        get { defaults.string(forKey: baseKey) ?? "" }
-        nonmutating set {
-            var v = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if v.hasSuffix("/") { v.removeLast() }
-            defaults.set(v, forKey: baseKey)
-        }
+    /// Opaque id from the relay — not secret, just useful for support/debugging.
+    var userId: String {
+        get { defaults.string(forKey: userIdKey) ?? "" }
+        nonmutating set { defaults.set(newValue, forKey: userIdKey) }
     }
-    var username: String {
-        get { defaults.string(forKey: userKey) ?? "" }
-        nonmutating set { defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: userKey) }
-    }
-    var password: String {
+    var apiKey: String {
         get { keychainGet() ?? "" }
         nonmutating set { keychainSet(newValue) }
     }
 
-    /// Enabled and fully filled in.
-    var isActive: Bool { enabled && !baseURL.isEmpty && !username.isEmpty }
+    /// Registered (has a key) and switched on.
+    var isActive: Bool { enabled && !apiKey.isEmpty }
+
+    /// Wipes local relay state. Does NOT delete the server-side account — call
+    /// `RelayServerClient.disconnect()` for that.
+    func clear() {
+        defaults.removeObject(forKey: enabledKey)
+        defaults.removeObject(forKey: userIdKey)
+        keychainSet("")
+    }
 
     private func keychainGet() -> String? {
         let q: [String: Any] = [
@@ -65,8 +78,11 @@ struct RelayServerStore {
     }
 }
 
-/// Talks to the self-hosted relay over HTTPS with Basic auth. Mirrors the cloud
-/// command set plus server-side scheduling (`POST /vehicles/:vin/schedule`).
+/// Talks to the shared relay over HTTPS with a Bearer API key. Mirrors the
+/// cloud command set plus server-side scheduling (`POST /vehicles/:vin/schedule`),
+/// which is the whole point: it fires even if this device is offline by then.
+/// Works unmodified on iOS and watchOS — only the interactive sign-in
+/// (`RelayAuth`, iOS-only) differs per platform.
 @MainActor
 @Observable
 final class RelayServerClient {
@@ -100,7 +116,7 @@ final class RelayServerClient {
     let store = RelayServerStore()
 
     /// Observable mirror of the store's active flag, so SwiftUI reacts when
-    /// settings are edited (iOS) or synced in (watch). Refresh via
+    /// sign-in completes (iOS) or settings sync in (watch). Refresh via
     /// `reloadSettings()` after changing the store.
     private(set) var isActive = false
 
@@ -110,10 +126,8 @@ final class RelayServerClient {
 
     // MARK: - Commands
 
-    /// `requiresActive: false` — this is also how the settings screen tests a
-    /// server before the user has flipped "Use my server" on.
     func fetchVehicles() async {
-        await run("Loading…", requiresActive: false) {
+        await run("Loading…") {
             let d: VehicleListResponse = try await self.get("/vehicles")
             self.accountVehicles = d.response.map { RelayVehicle(vin: $0.vin, displayName: $0.display_name ?? "Tesla") }
         }
@@ -169,16 +183,28 @@ final class RelayServerClient {
         }
     }
 
-    private func run(_ label: String, requiresActive: Bool = true, _ work: @escaping () async throws -> Void) async {
+    /// Deletes this account's data on the relay (best-effort) and always clears
+    /// local credentials, even if the network call fails — a stuck local key
+    /// should never linger just because the delete request didn't land.
+    func disconnect() async {
         guard !isBusy else { return }
-        if requiresActive {
-            guard isActive else { lastError = "Relay server not configured."; return }
-        } else {
-            guard !store.baseURL.isEmpty, !store.username.isEmpty else {
-                lastError = "Enter a server URL and username first."
-                return
-            }
+        isBusy = true; status = "Disconnecting…"
+        defer { isBusy = false }
+        if !store.apiKey.isEmpty {
+            _ = try? await delete("/account")
         }
+        store.clear()
+        scheduledByVIN = [:]
+        accountVehicles = []
+        snapshot = nil
+        lastError = nil
+        status = nil
+        reloadSettings()
+    }
+
+    private func run(_ label: String, _ work: @escaping () async throws -> Void) async {
+        guard !isBusy else { return }
+        guard isActive else { lastError = "Connect to the relay first."; return }
         isBusy = true; lastError = nil; status = label
         defer { isBusy = false }
         do { try await work(); status = "Done" }
@@ -192,13 +218,15 @@ final class RelayServerClient {
         case http(Int, String)
         var errorDescription: String? {
             switch self {
-            case .notConfigured: "Relay server not configured."
+            case .notConfigured: "Not connected to the relay."
             case let .http(code, body):
                 switch code {
-                case 401: "Relay login rejected — check username/password."
+                case 401: "Relay session invalid — reconnect in Settings."
+                case 403: "That car isn't on your connected Tesla account."
                 // The server forwards Tesla's upstream status; 408 is Tesla's
                 // signal for an asleep/unreachable vehicle (see server.mjs).
                 case 408: "Vehicle is asleep — tap Wake, then try again."
+                case 429: "Too many requests — wait a moment and try again."
                 default: "Relay error \(code): \(body)"
                 }
             }
@@ -206,11 +234,12 @@ final class RelayServerClient {
     }
 
     private func request(_ path: String, method: String, body: [String: Any]? = nil) throws -> URLRequest {
-        guard !store.baseURL.isEmpty, let url = URL(string: store.baseURL + path) else { throw RelayError.notConfigured }
+        guard let url = URL(string: RelayServerConfig.baseURL + path) else { throw RelayError.notConfigured }
         var req = URLRequest(url: url)
         req.httpMethod = method
-        let creds = Data("\(store.username):\(store.password)".utf8).base64EncodedString()
-        req.setValue("Basic \(creds)", forHTTPHeaderField: "Authorization")
+        if !store.apiKey.isEmpty {
+            req.setValue("Bearer \(store.apiKey)", forHTTPHeaderField: "Authorization")
+        }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try JSONSerialization.data(withJSONObject: body)

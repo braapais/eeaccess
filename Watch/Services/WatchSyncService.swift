@@ -214,9 +214,7 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
             }
             let store = RelayServerStore()
             store.enabled = obj["enabled"] as? Bool ?? false
-            store.baseURL = obj["baseURL"] as? String ?? ""
-            store.username = obj["username"] as? String ?? ""
-            store.password = obj["password"] as? String ?? ""
+            store.apiKey = obj["apiKey"] as? String ?? ""
             relaySettingsVersion += 1
             lastError = nil
         default:

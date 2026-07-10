@@ -13,13 +13,13 @@ struct TeslaKeySettingsView: View {
         Form {
             vehicleSection
             accountSection
-            Section("Server (optional)") {
+            Section("Relay (optional)") {
                 NavigationLink {
                     RelayServerView()
                 } label: {
-                    Label("Relay server", systemImage: "server.rack")
+                    Label("Relay", systemImage: "server.rack")
                 }
-                Text("Route cloud commands through your own server so a scheduled Unlock+Drive fires even when your phone/watch has no signal.")
+                Text("Route cloud commands through EEAccess's relay so a scheduled Unlock+Drive fires even when your phone/watch has no signal. Just sign in — no server to set up.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

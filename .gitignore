@@ -41,6 +41,8 @@ tesla-fleet/
 
 # Server secrets / deps / runtime state — never commit
 server/config.json
+server/config.single-tenant.json.bak
 server/godaddy.env
 server/schedules.json
+server/users/
 server/node_modules/

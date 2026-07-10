@@ -9,6 +9,7 @@ struct EEAccessApp: App {
     @State private var fleetAuth = TeslaFleetAuth()
     @State private var fleet = TeslaFleetService()
     @State private var relay = RelayServerClient()
+    @State private var relayAuth = RelayAuth()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -36,6 +37,7 @@ struct EEAccessApp: App {
             .environment(fleetAuth)
             .environment(fleet)
             .environment(relay)
+            .environment(relayAuth)
             .task {
                 await entitlement.refreshEntitlement()
                 await entitlement.loadProduct()
@@ -57,16 +59,12 @@ struct EEAccessApp: App {
         .modelContainer(container)
     }
 
-    /// Pushes the relay-server settings to the watch so it can route cloud cars
-    /// through the server too.
+    /// Pushes the relay's on/off flag + API key to the watch so it can route
+    /// cloud cars through the shared relay too. The relay's URL is a fixed
+    /// constant on both platforms, so there's nothing else to sync.
     private func syncRelaySettings() {
         let store = RelayServerStore()
-        sync.sendRelaySettings(
-            enabled: store.enabled,
-            baseURL: store.baseURL,
-            username: store.username,
-            password: store.password
-        )
+        sync.sendRelaySettings(enabled: store.enabled, apiKey: store.apiKey)
     }
 
     /// Pushes a fresh Fleet access token + region host to the watch so its

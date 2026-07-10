@@ -166,17 +166,14 @@ final class PhoneSyncService: NSObject, ObservableObject, WCSessionDelegate {
         try? session.updateApplicationContext(context)
     }
 
-    /// Syncs the relay-server settings (URL/username/password/enabled) to the
-    /// watch so its cloud cars can go through the server too. Sent as a file
-    /// transfer (queued, delivered when the watch app next opens).
-    func sendRelaySettings(enabled: Bool, baseURL: String, username: String, password: String) {
+    /// Syncs the relay's on/off flag + auto-provisioned API key to the watch so
+    /// its cloud cars can go through the shared relay too. The relay's URL is a
+    /// fixed constant on both platforms — nothing else to sync, no username or
+    /// password ever exists to transfer. Sent as a file transfer (queued,
+    /// delivered when the watch app next opens).
+    func sendRelaySettings(enabled: Bool, apiKey: String) {
         guard session.activationState == .activated else { return }
-        let payload: [String: Any] = [
-            "enabled": enabled,
-            "baseURL": baseURL,
-            "username": username,
-            "password": password,
-        ]
+        let payload: [String: Any] = ["enabled": enabled, "apiKey": apiKey]
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("eeaccess-relay.json")
         do { try data.write(to: url, options: .atomic) } catch { return }
