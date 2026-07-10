@@ -71,9 +71,9 @@ struct WatchTeslaVehicleView: View {
                 .buttonStyle(.bordered)
                 .tint(.blue)
 
-                if relay.pendingSchedule != nil {
+                if relay.pendingSchedule(for: vehicle.vin) != nil {
                     Button(role: .destructive) {
-                        Task { await relay.cancelSchedule() }
+                        Task { await relay.cancelSchedule(vin: vehicle.vin) }
                     } label: {
                         Label("Cancel scheduled", systemImage: "xmark.circle").frame(maxWidth: .infinity)
                     }
@@ -126,7 +126,7 @@ struct WatchTeslaVehicleView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 }
-                if relay.pendingSchedule != nil {
+                if relay.pendingSchedule(for: vehicle.vin) != nil {
                     Label("Scheduled on server", systemImage: "checkmark.circle")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -156,7 +156,7 @@ struct WatchTeslaVehicleView: View {
                     cloudPrompt("Open EEAccess on your iPhone (Tesla Key) once while signed in to enable cloud control here.")
                 } else {
                     Button {
-                        Task { await cloud.unlock(vin: vehicle.vin, unsigned: true) }
+                        Task { await cloud.unlock(vin: vehicle.vin) }
                     } label: {
                         Label("Unlock", systemImage: "lock.open.fill").frame(maxWidth: .infinity)
                     }
@@ -164,14 +164,14 @@ struct WatchTeslaVehicleView: View {
                     .tint(.green)
 
                     Button {
-                        Task { await cloud.lock(vin: vehicle.vin, unsigned: true) }
+                        Task { await cloud.lock(vin: vehicle.vin) }
                     } label: {
                         Label("Lock", systemImage: "lock.fill").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
 
                     Button {
-                        Task { await cloud.startDrive(vin: vehicle.vin, unsigned: true) }
+                        Task { await cloud.startDrive(vin: vehicle.vin) }
                     } label: {
                         Label("Start Drive", systemImage: "steeringwheel").frame(maxWidth: .infinity)
                     }
@@ -187,7 +187,7 @@ struct WatchTeslaVehicleView: View {
                         .buttonStyle(.bordered)
                     } else {
                         Button {
-                            cloud.scheduleUnlockDrive(vin: vehicle.vin, unsigned: true, delay: 60)
+                            cloud.scheduleUnlockDrive(vin: vehicle.vin, delay: 60)
                         } label: {
                             Label("Unlock & Drive in 60s", systemImage: "timer").frame(maxWidth: .infinity)
                         }
@@ -204,12 +204,12 @@ struct WatchTeslaVehicleView: View {
 
                     HStack {
                         Button {
-                            Task { await cloud.climateOn(vin: vehicle.vin, unsigned: true) }
+                            Task { await cloud.climateOn(vin: vehicle.vin) }
                         } label: {
                             Label("Climate", systemImage: "fan").frame(maxWidth: .infinity)
                         }
                         Button {
-                            Task { await cloud.climateOff(vin: vehicle.vin, unsigned: true) }
+                            Task { await cloud.climateOff(vin: vehicle.vin) }
                         } label: {
                             Label("Off", systemImage: "fan.slash").frame(maxWidth: .infinity)
                         }

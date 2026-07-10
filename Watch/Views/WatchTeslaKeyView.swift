@@ -7,6 +7,7 @@ import TeslaBLE
 /// list. Per-car controls live in `WatchTeslaVehicleView`.
 struct WatchTeslaKeyView: View {
     @Query(sort: \TeslaVehicle.createdAt) private var vehicles: [TeslaVehicle]
+    @Environment(RelayServerClient.self) private var relay
 
     var body: some View {
         Group {
@@ -43,7 +44,7 @@ struct WatchTeslaKeyView: View {
 
     private func subtitle(for vehicle: TeslaVehicle) -> String {
         switch vehicle.accessMode {
-        case .cloud: "Cloud — control from iPhone"
+        case .cloud: relay.isActive ? "Cloud — via relay server" : "Cloud — via Tesla account"
         case .bluetoothKey: vehicle.isPaired ? "Paired" : "Pending pairing"
         }
     }

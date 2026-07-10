@@ -56,18 +56,21 @@ final class WatchTeslaCloud {
         clientID: String,
         clientSecret: String
     ) {
-        // Never downgrade a locally-refreshed newer token with an older synced
-        // one (the phone may re-send a stale context).
-        if let current = self.expiresAt, current > expiresAt, self.baseURL == baseURL {
-            // keep our fresher access token, but adopt any newer credentials
-        } else {
-            self.accessToken = accessToken
-            self.expiresAt = expiresAt
-        }
-        self.refreshToken = refreshToken
+        // Config is always safe to adopt (latest edit on the phone wins).
         self.baseURL = baseURL
         self.clientID = clientID
         self.clientSecret = clientSecret
+
+        // The (access, refresh, expiry) triple is only adopted together, and
+        // only if the incoming session is actually newer. If the watch already
+        // refreshed locally (ensureFreshToken()) it may hold a newer — possibly
+        // rotated — refresh token; blindly overwriting it with the phone's
+        // stale one would break the watch's NEXT refresh once Tesla invalidates
+        // the rotated-out token.
+        if let current = self.expiresAt, current >= expiresAt { return }
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.expiresAt = expiresAt
     }
 
     /// Refreshes the access token directly with Tesla over LTE/WiFi (no phone)
@@ -134,11 +137,14 @@ final class WatchTeslaCloud {
         await run("Waking…") { _ = try await self.post("/api/1/vehicles/\(vin)/wake_up") }
     }
 
-    func lock(vin: String, unsigned: Bool) async { await command(vin, "door_lock", "Locking…", unsigned) }
-    func unlock(vin: String, unsigned: Bool) async { await command(vin, "door_unlock", "Unlocking…", unsigned) }
-    func startDrive(vin: String, unsigned: Bool) async { await command(vin, "remote_start_drive", "Enabling drive…", unsigned) }
-    func climateOn(vin: String, unsigned: Bool) async { await command(vin, "auto_conditioning_start", "Starting climate…", unsigned) }
-    func climateOff(vin: String, unsigned: Bool) async { await command(vin, "auto_conditioning_stop", "Stopping climate…", unsigned) }
+    // Only ever called for `.cloud`-mode vehicles (see WatchTeslaVehicleView),
+    // which are exempt from Tesla's signed-command requirement — so every
+    // command here is unsigned, unconditionally.
+    func lock(vin: String) async { await command(vin, "door_lock", "Locking…") }
+    func unlock(vin: String) async { await command(vin, "door_unlock", "Unlocking…") }
+    func startDrive(vin: String) async { await command(vin, "remote_start_drive", "Enabling drive…") }
+    func climateOn(vin: String) async { await command(vin, "auto_conditioning_start", "Starting climate…") }
+    func climateOff(vin: String) async { await command(vin, "auto_conditioning_stop", "Stopping climate…") }
 
     // MARK: - Scheduled (garage dead-zone) unlock + drive
 
@@ -150,7 +156,7 @@ final class WatchTeslaCloud {
     /// while you still have signal (before walking into a no-signal garage) so
     /// the car is unlocked and drive-enabled when you arrive. Retries a few
     /// times if the network blips at fire time.
-    func scheduleUnlockDrive(vin: String, unsigned: Bool = true, delay: Int = 60) {
+    func scheduleUnlockDrive(vin: String, delay: Int = 60) {
         cancelSchedule()
         scheduleTask = Task { [weak self] in
             guard let self else { return }
@@ -162,7 +168,7 @@ final class WatchTeslaCloud {
                 remaining -= 1
             }
             self.scheduledSeconds = 0
-            await self.fireUnlockDrive(vin: vin, unsigned: unsigned)
+            await self.fireUnlockDrive(vin: vin)
             self.scheduledSeconds = nil
         }
     }
@@ -173,16 +179,16 @@ final class WatchTeslaCloud {
         scheduledSeconds = nil
     }
 
-    private func fireUnlockDrive(vin: String, unsigned: Bool) async {
+    private func fireUnlockDrive(vin: String) async {
         for attempt in 0..<3 {
-            await unlock(vin: vin, unsigned: unsigned)
-            await startDrive(vin: vin, unsigned: unsigned)
+            await unlock(vin: vin)
+            await startDrive(vin: vin)
             if lastError == nil { return }
             if attempt < 2 { try? await Task.sleep(for: .seconds(5)) }
         }
     }
 
-    private func command(_ vin: String, _ action: String, _ label: String, _ unsigned: Bool) async {
+    private func command(_ vin: String, _ action: String, _ label: String) async {
         // Pre-2021 cars accept unsigned commands over the plain Fleet host,
         // which is the only path available on the watch (no signing proxy).
         await run(label) { _ = try await self.post("/api/1/vehicles/\(vin)/command/\(action)") }
@@ -223,8 +229,10 @@ final class WatchTeslaCloud {
     }
 
     private func request(_ path: String, method: String) throws -> URLRequest {
-        guard let baseURL, let token = accessToken else { throw CloudError.noSession }
-        var request = URLRequest(url: URL(string: baseURL + path)!)
+        guard let baseURL, let token = accessToken, let url = URL(string: baseURL + path) else {
+            throw CloudError.noSession
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request

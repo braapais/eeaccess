@@ -76,7 +76,9 @@ struct TeslaVehicleFormView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            if let vehicle, fleetAuth.isSignedIn || relay.isActive {
+            // The relay server only sends unsigned commands, so it's only a
+            // usable backend for .cloud (pre-2021) cars — see cloudControl.
+            if let vehicle, fleetAuth.isSignedIn || (relay.isActive && vehicle.accessMode == .cloud) {
                 cloudControl(vehicle)
             }
             if vehicle != nil {
@@ -170,9 +172,10 @@ struct TeslaVehicleFormView: View {
         let vin = vehicle.vin
         // Pre-2021 S/X accept unsigned commands (no proxy); 2021+ need signing.
         let unsigned = vehicle.accessMode == .cloud
-        // When the relay server is on, route everything through it — that's what
-        // makes server-side scheduling (offline garage) possible.
-        let useRelay = relay.isActive
+        // The relay server only ever sends unsigned commands — never route a
+        // signed (2021+) car through it, or a scheduled Unlock+Drive would
+        // fail silently at fire time instead of visibly like a direct tap does.
+        let useRelay = relay.isActive && unsigned
         Section(useRelay ? "Cloud control (via server)" : "Cloud control") {
             if useRelay, let s = relay.snapshot {
                 snapshotRows(battery: s.batteryLevel, locked: s.locked, online: s.online, inside: s.insideTempC)
@@ -229,9 +232,9 @@ struct TeslaVehicleFormView: View {
     @ViewBuilder
     private func scheduleControls(vin: String, unsigned: Bool, useRelay: Bool) -> some View {
         if useRelay {
-            if relay.pendingSchedule != nil {
+            if relay.pendingSchedule(for: vin) != nil {
                 Button(role: .destructive) {
-                    Task { await relay.cancelSchedule() }
+                    Task { await relay.cancelSchedule(vin: vin) }
                 } label: {
                     Label("Cancel scheduled Unlock & Drive", systemImage: "xmark.circle").frame(maxWidth: .infinity)
                 }

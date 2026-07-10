@@ -40,7 +40,10 @@ rejects builds produced on a beta OS (ITMS-90111) even with the correct SDK —
 so release builds go through **Xcode Cloud** (Apple's release macOS/Xcode).
 `ci_scripts/ci_post_clone.sh` installs XcodeGen and regenerates the project on
 each Cloud build (`EEAccess.xcodeproj` is git-ignored; packages are vendored
-locally so no registry access is needed). Pick a **release** Xcode (26.x) in the
+locally so no registry access is needed). `brew install xcodegen` retries once
+after `brew update` if it fails — Xcode Cloud's Homebrew snapshot can be stale
+enough that xcodegen isn't in the local formula index yet (broke a build once).
+Pick a **release** Xcode (26.x) in the
 workflow, never a beta. Full steps: `BrandAssets/XCODE_CLOUD_SETUP.md`. Local
 Xcode 26.5 GUI won't `open`-launch on the beta macOS (LS error -10664) — run the
 binary directly: `/Applications/Xcode.app/Contents/MacOS/Xcode &`.
@@ -144,7 +147,18 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   writes `RelayServerStore`, bumps `relaySettingsVersion` → `reloadSettings()`);
   when active, the watch's cloud car routes through the relay too
   (`WatchTeslaVehicleView.relayControls`) — simpler than the direct token-sync
-  path (just Basic auth, no token refresh on the watch).
+  path (just Basic auth, no token refresh on the watch). Relay only ever sends
+  **unsigned** commands, so it's gated to `.cloud`-mode vehicles on both iOS
+  (`useRelay = relay.isActive && vehicle.accessMode == .cloud`) and watch
+  (cloud screen only reachable for `.cloud` cars) — a 2021+ car always falls
+  back to the direct signed/unsigned-aware `TeslaFleetService` path so a
+  signing-required failure is visible, not a silently-dropped schedule.
+  Schedules are per-VIN (`scheduledByVIN`, not a single shared slot) and
+  **persisted server-side** (`server/schedules.json`) so a pending Unlock+Drive
+  survives a service restart — re-armed on boot, fired immediately if overdue
+  within a 15-min grace window. Server auth uses constant-time comparison
+  (`timingSafeEqual`) and forwards Tesla's real upstream status (e.g. 408 =
+  asleep) instead of flattening every failure to 502.
 - **Phone↔watch:** VIN/name/role sync over WatchConnectivity
   (`tesla-upsert`/`tesla-delete` file transfers). Watch preserves `isPaired`
   and (once paired) `keyRoleRaw` — the role is baked into the enrolled key.

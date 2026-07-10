@@ -88,10 +88,14 @@ final class RelayServerClient {
 
     private(set) var snapshot: Snapshot?
     private(set) var accountVehicles: [RelayVehicle] = []
-    private(set) var pendingSchedule: PendingSchedule?
+    /// Pending schedules keyed by VIN — a schedule on one car must never be
+    /// read/cancelled from another car's screen.
+    private(set) var scheduledByVIN: [String: PendingSchedule] = [:]
     private(set) var isBusy = false
     private(set) var status: String?
     private(set) var lastError: String?
+
+    func pendingSchedule(for vin: String) -> PendingSchedule? { scheduledByVIN[vin] }
 
     let store = RelayServerStore()
 
@@ -106,8 +110,10 @@ final class RelayServerClient {
 
     // MARK: - Commands
 
+    /// `requiresActive: false` — this is also how the settings screen tests a
+    /// server before the user has flipped "Use my server" on.
     func fetchVehicles() async {
-        await run("Loading…") {
+        await run("Loading…", requiresActive: false) {
             let d: VehicleListResponse = try await self.get("/vehicles")
             self.accountVehicles = d.response.map { RelayVehicle(vin: $0.vin, displayName: $0.display_name ?? "Tesla") }
         }
@@ -133,38 +139,46 @@ final class RelayServerClient {
     func climateOff(vin: String) async { await run("Stopping climate…") { _ = try await self.post("/vehicles/\(vin)/climate_off") } }
 
     /// Schedules Unlock+Drive on the SERVER — fires even if this device goes
-    /// offline. Returns the pending schedule for the countdown/cancel UI.
+    /// offline. Stores the pending schedule (keyed by VIN) for the
+    /// countdown/cancel UI.
     func scheduleUnlockDrive(vin: String, delay: Int = 60) async {
         await run("Scheduling…") {
             let d: ScheduleResponse = try await self.post("/vehicles/\(vin)/schedule", body: ["delay": delay])
-            self.pendingSchedule = PendingSchedule(id: d.id, fireAt: Date(timeIntervalSince1970: d.fireAt / 1000))
+            self.scheduledByVIN[vin] = PendingSchedule(id: d.id, fireAt: Date(timeIntervalSince1970: d.fireAt / 1000))
         }
     }
 
-    func cancelSchedule() async {
-        guard let id = pendingSchedule?.id else { return }
+    func cancelSchedule(vin: String) async {
+        guard let id = scheduledByVIN[vin]?.id else { return }
         await run("Cancelling…") {
             _ = try await self.delete("/schedules/\(id)")
-            self.pendingSchedule = nil
+            self.scheduledByVIN[vin] = nil
         }
     }
 
-    /// Reconciles the pending schedule with the server (it may have already
-    /// fired or been set from another device).
+    /// Reconciles all pending schedules with the server (one may have already
+    /// fired, been cancelled, or been set from another device).
     func refreshSchedules() async {
         guard isActive else { return }
         if let list: [ScheduleResponse] = try? await get("/schedules") {
-            if let mine = list.first {
-                pendingSchedule = PendingSchedule(id: mine.id, fireAt: Date(timeIntervalSince1970: mine.fireAt / 1000))
-            } else {
-                pendingSchedule = nil
+            var byVIN: [String: PendingSchedule] = [:]
+            for s in list {
+                byVIN[s.vin] = PendingSchedule(id: s.id, fireAt: Date(timeIntervalSince1970: s.fireAt / 1000))
             }
+            scheduledByVIN = byVIN
         }
     }
 
-    private func run(_ label: String, _ work: @escaping () async throws -> Void) async {
+    private func run(_ label: String, requiresActive: Bool = true, _ work: @escaping () async throws -> Void) async {
         guard !isBusy else { return }
-        guard isActive else { lastError = "Relay server not configured."; return }
+        if requiresActive {
+            guard isActive else { lastError = "Relay server not configured."; return }
+        } else {
+            guard !store.baseURL.isEmpty, !store.username.isEmpty else {
+                lastError = "Enter a server URL and username first."
+                return
+            }
+        }
         isBusy = true; lastError = nil; status = label
         defer { isBusy = false }
         do { try await work(); status = "Done" }
@@ -180,7 +194,13 @@ final class RelayServerClient {
             switch self {
             case .notConfigured: "Relay server not configured."
             case let .http(code, body):
-                code == 401 ? "Relay login rejected — check username/password." : "Relay error \(code): \(body)"
+                switch code {
+                case 401: "Relay login rejected — check username/password."
+                // The server forwards Tesla's upstream status; 408 is Tesla's
+                // signal for an asleep/unreachable vehicle (see server.mjs).
+                case 408: "Vehicle is asleep — tap Wake, then try again."
+                default: "Relay error \(code): \(body)"
+                }
             }
         }
     }
