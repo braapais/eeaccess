@@ -6,9 +6,18 @@ import UIKit
 /// All call sites should use the async variant or invoke the sync variant from
 /// an already-background context (e.g. `NSItemProvider.loadDataRepresentation`).
 enum ImageProcessing {
+    /// Upper bound on what we'll store verbatim when decoding fails. Without
+    /// this, a malformed or oversized payload (a hostile paste, a corrupt
+    /// Share Extension image) that `UIImage` can't decode was stored exactly
+    /// as received — unbounded — instead of being resized down like every
+    /// decodable image is.
+    private static let maxFallbackBytes = 5 * 1024 * 1024
+
     /// Synchronous — only call from a background thread.
     static func normalize(data: Data, maxDimension: CGFloat, quality: CGFloat) -> Data {
-        guard let img = UIImage(data: data) else { return data }
+        guard let img = UIImage(data: data) else {
+            return data.count <= maxFallbackBytes ? data : Data()
+        }
         let resized = img.resized(maxDimension: maxDimension)
         return resized.jpegData(compressionQuality: quality) ?? data
     }

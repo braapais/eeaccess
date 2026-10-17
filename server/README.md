@@ -32,15 +32,23 @@ The app never asks a human for a login. Instead:
 1. `cp config.example.json config.json` and fill in `clientId`, `clientSecret`,
    `regionBase`, and `redirectUri` (must exactly match an Allowed Redirect URI
    registered on the Tesla app — e.g.
-   `https://eeaccess.elbaeverywhere.com/oauth/callback`). `config.json` is
+   `https://eeaccess.elbaeverywhere.com/oauth/callback`). Also set
+   `encryptionKey` to `openssl rand -hex 32` — it encrypts every user's
+   refresh/access token at rest (`users/<uuid>.json`). If left out, the server
+   still runs but derives a weaker fallback key from `clientSecret` and logs a
+   warning on every boot; set a real one before going live. `config.json` is
    gitignored.
 2. `mkdir -p users` (per-user session files; also gitignored).
 3. Run: `node server.mjs` (or the systemd unit below).
 
 ## Endpoints
 
-`/health`, `/oauth/start`, `/oauth/callback`, `/oauth/complete` need no auth.
-Everything else requires `Authorization: Bearer <per-user apiKey>`.
+`/health`, `/oauth/start`, `/oauth/callback`, `/oauth/complete` need no auth —
+they're IP-rate-limited instead (20/min/IP) since the per-user limiter below
+can't apply before a user exists. Signing in again with the same Tesla
+account reuses that account's existing user record (and rate bucket) rather
+than minting a new one each time. Everything else requires `Authorization:
+Bearer <per-user apiKey>`.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -66,10 +74,12 @@ client against the shared Tesla app's standing. Commands are sent **unsigned**
 
 ## Data & privacy
 
-Each user's Tesla refresh token lives only in their own `users/<uuid>.json`
-file — nothing links a user record back to a real identity beyond whatever
-Tesla itself associates with the account. `DELETE /account` removes the file
-and any pending schedules for that user's cars immediately.
+Each user's Tesla refresh/access token lives only in their own
+`users/<uuid>.json` file, AES-256-GCM-encrypted at rest with `encryptionKey`
+(written and read as a temp-file-then-rename, so a crash mid-write can never
+leave a torn file) — nothing links a user record back to a real identity
+beyond whatever Tesla itself associates with the account. `DELETE /account`
+removes the file and any pending schedules for that user's cars immediately.
 
 ## Run as a service (systemd)
 

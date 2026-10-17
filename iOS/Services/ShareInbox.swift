@@ -15,9 +15,14 @@ enum ShareInbox {
 
         let decoder = PendingShare.decoder()
         for fileURL in files where fileURL.pathExtension == "json" {
-            defer { try? fm.removeItem(at: fileURL) }
-            guard let data = try? Data(contentsOf: fileURL),
-                  let share = try? decoder.decode(PendingShare.self, from: data) else {
+            // Claim (read + remove) the file before any `await` below. This
+            // runs on launch AND on scenePhase→active, which race on a cold
+            // launch; removing it synchronously up front means a concurrent
+            // call sees the file already gone instead of re-ingesting it and
+            // inserting a duplicate card.
+            guard let data = try? Data(contentsOf: fileURL) else { continue }
+            try? fm.removeItem(at: fileURL)
+            guard let share = try? decoder.decode(PendingShare.self, from: data) else {
                 continue
             }
             await ingest(share, container: container, sync: sync)

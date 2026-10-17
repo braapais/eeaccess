@@ -73,6 +73,22 @@ final class WatchTeslaCloud {
         self.expiresAt = expiresAt
     }
 
+    /// Wipes the synced session — called when the iPhone reports its Tesla
+    /// account was disconnected. Without this, the watch would keep holding
+    /// (and refreshing) a valid refresh token indefinitely, able to keep
+    /// commanding the car even though the user believes cloud access was
+    /// revoked.
+    func clearSession() {
+        accessToken = nil
+        refreshToken = nil
+        expiresAt = nil
+        baseURL = nil
+        clientID = nil
+        clientSecret = nil
+        snapshot = nil
+        status = nil
+    }
+
     /// Refreshes the access token directly with Tesla over LTE/WiFi (no phone)
     /// when it's within 5 minutes of expiry. Called on app open and before
     /// each command. Returns whether a usable (non-expired) token is in hand.
@@ -84,9 +100,25 @@ final class WatchTeslaCloud {
         return Date() < expiresAt                                        // still valid?
     }
 
+    /// In-flight refresh, shared by concurrent callers. `ensureFreshToken()`
+    /// runs from several independent triggers (app launch, scenePhase
+    /// change, each command's pre-flight check) that can overlap; without
+    /// this, two overlapping refreshes could both hit Tesla with the same
+    /// refresh token and the one that lands second would overwrite state
+    /// with a token Tesla may have already rotated out from under it.
+    private var refreshTask: Task<Bool, Never>?
+
     /// Directly exchanges the refresh token for a new access token.
     @discardableResult
     func refresh() async -> Bool {
+        if let refreshTask { return await refreshTask.value }
+        let task = Task { await self.performRefresh() }
+        refreshTask = task
+        defer { refreshTask = nil }
+        return await task.value
+    }
+
+    private func performRefresh() async -> Bool {
         guard let refreshToken, !refreshToken.isEmpty,
               let clientID, !clientID.isEmpty else { return false }
         var form = [
