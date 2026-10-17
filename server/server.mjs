@@ -7,10 +7,10 @@
 //
 // Run:  node server.mjs        (config from ./config.json, see config.example.json)
 import { createServer } from 'node:http'
-import { readFile, writeFile, mkdir, readdir, unlink } from 'node:fs/promises'
+import { readFile, writeFile, rename, mkdir, readdir, unlink } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto'
+import { randomBytes, randomUUID, createHash, createCipheriv, createDecipheriv } from 'node:crypto'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 const CONFIG_PATH = process.env.EEACCESS_CONFIG || join(__dir, 'config.json')
@@ -29,14 +29,68 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const b64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 const sha256hex = (s) => createHash('sha256').update(s).digest('hex')
 
-function safeEqual(a, b) {
-  const bufA = Buffer.from(a)
-  const bufB = Buffer.from(b)
-  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB)
-}
-
 class UpstreamError extends Error {
   constructor(status, body) { super(`${status}: ${body}`); this.status = status }
+}
+
+// --- At-rest encryption of live Tesla tokens ------------------------------------
+// Refresh/access tokens are live car-control credentials for every user, so
+// they're encrypted before touching disk rather than stored as plaintext JSON.
+// Prefer a dedicated `encryptionKey` in config.json (32 random bytes, hex —
+// `openssl rand -hex 32`); falling back to deriving one from clientSecret keeps
+// old deployments working but loses key separation, so it's logged loudly.
+function loadEncryptionKey() {
+  if (config.encryptionKey) {
+    const buf = Buffer.from(config.encryptionKey, 'hex')
+    if (buf.length === 32) return buf
+    log('WARNING: config.encryptionKey is not 32 bytes of hex — deriving a key from it instead of using it directly')
+    return createHash('sha256').update(config.encryptionKey).digest()
+  }
+  log('WARNING: no config.encryptionKey set — deriving the at-rest token encryption key from clientSecret. Add a dedicated `encryptionKey` (openssl rand -hex 32) to config.json for proper key separation.')
+  return createHash('sha256').update(`eeaccess-fallback-key:${config.clientSecret || ''}`).digest()
+}
+const ENCRYPTION_KEY = loadEncryptionKey()
+const SECRET_USER_FIELDS = ['refreshToken', 'accessToken']
+
+function encryptSecret(plain) {
+  if (plain == null) return plain
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv)
+  const ct = Buffer.concat([cipher.update(String(plain), 'utf8'), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return `enc:v1:${iv.toString('base64')}:${tag.toString('base64')}:${ct.toString('base64')}`
+}
+function decryptSecret(value) {
+  if (typeof value !== 'string' || !value.startsWith('enc:v1:')) return value // plaintext legacy record
+  const [, , ivB64, tagB64, ctB64] = value.split(':')
+  const iv = Buffer.from(ivB64, 'base64')
+  const tag = Buffer.from(tagB64, 'base64')
+  const ct = Buffer.from(ctB64, 'base64')
+  const decipher = createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, iv)
+  decipher.setAuthTag(tag)
+  return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8')
+}
+function encryptUserForStorage(user) {
+  const copy = { ...user }
+  for (const f of SECRET_USER_FIELDS) if (copy[f] != null) copy[f] = encryptSecret(copy[f])
+  return copy
+}
+function decryptUserFromStorage(user) {
+  if (!user) return user
+  for (const f of SECRET_USER_FIELDS) if (user[f] != null) user[f] = decryptSecret(user[f])
+  return user
+}
+
+// Decodes the `sub` claim from an OIDC id_token without verifying the
+// signature — acceptable here because the token just came directly from
+// Tesla's own token endpoint over TLS in this same request, not from a
+// client. Used only to dedupe repeat sign-ins by the same Tesla account.
+function decodeIdTokenSub(idToken) {
+  try {
+    const payload = idToken.split('.')[1]
+    const json = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+    return JSON.parse(json).sub || null
+  } catch { return null }
 }
 
 // --- Per-user storage ----------------------------------------------------------
@@ -46,33 +100,42 @@ class UpstreamError extends Error {
 const userPath = (id) => join(USERS_DIR, `${id}.json`)
 
 async function loadUser(id) {
-  try { return JSON.parse(await readFile(userPath(id), 'utf8')) } catch { return null }
+  try { return decryptUserFromStorage(JSON.parse(await readFile(userPath(id), 'utf8'))) } catch { return null }
 }
 async function saveUser(user) {
-  await writeFile(userPath(user.id), JSON.stringify(user, null, 2))
+  const path = userPath(user.id)
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`
+  const data = JSON.stringify(encryptUserForStorage(user), null, 2)
+  await writeFile(tmp, data, { mode: 0o600 })
+  await rename(tmp, path) // atomic on the same filesystem — no partial/torn writes visible to concurrent readers
 }
 async function deleteUser(user) {
   apiKeyIndex.delete(user.apiKeyHash)
+  if (user.teslaSub) teslaSubIndex.delete(user.teslaSub)
   await unlink(userPath(user.id)).catch(() => {})
   for (const s of [...schedules.values()]) {
     if (s.userId === user.id) await cancelScheduleById(s.id)
   }
 }
 
-// apiKeyHash -> userId, rebuilt from disk at startup so auth lookups are a
-// Map hit instead of hashing + scanning every user file per request.
+// apiKeyHash -> userId and teslaSub -> userId, rebuilt from disk at startup so
+// auth lookups and sign-in dedup are Map hits instead of scanning every user
+// file per request.
 let apiKeyIndex = new Map()
-async function rebuildApiKeyIndex() {
+let teslaSubIndex = new Map()
+async function rebuildIndexes() {
   apiKeyIndex = new Map()
+  teslaSubIndex = new Map()
   const files = await readdir(USERS_DIR).catch(() => [])
   for (const f of files) {
     if (!f.endsWith('.json')) continue
     const user = JSON.parse(await readFile(join(USERS_DIR, f), 'utf8'))
     apiKeyIndex.set(user.apiKeyHash, user.id)
+    if (user.teslaSub) teslaSubIndex.set(user.teslaSub, user.id)
   }
   log(`loaded ${apiKeyIndex.size} user(s)`)
 }
-await rebuildApiKeyIndex()
+await rebuildIndexes()
 
 async function userForApiKey(key) {
   if (!key) return null
@@ -81,22 +144,38 @@ async function userForApiKey(key) {
 }
 
 // --- Tesla token management (per user, shared app credentials) -----------------
+// Concurrent requests for the same user near token expiry coalesce onto one
+// in-flight refresh instead of each firing their own — two independent
+// refreshes racing against a (possibly single-use/rotating) refresh token
+// could otherwise both succeed and the loser's save would clobber the
+// winner's rotated token, silently logging the user out.
+const refreshInFlight = new Map() // userId -> Promise<string>
 async function getAccessToken(user) {
   if (user.accessToken && Date.now() < user.accessExpiry - 120_000) return user.accessToken
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    client_id: config.clientId,
-    refresh_token: user.refreshToken,
-  })
-  if (config.clientSecret) body.set('client_secret', config.clientSecret)
-  const res = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body })
-  if (!res.ok) throw new UpstreamError(res.status, (await res.text()).slice(0, 200))
-  const j = await res.json()
-  user.accessToken = j.access_token
-  user.accessExpiry = Date.now() + j.expires_in * 1000
-  if (j.refresh_token && j.refresh_token !== user.refreshToken) user.refreshToken = j.refresh_token
-  await saveUser(user)
-  return user.accessToken
+  const existing = refreshInFlight.get(user.id)
+  if (existing) return existing
+  const p = (async () => {
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: config.clientId,
+      refresh_token: user.refreshToken,
+    })
+    if (config.clientSecret) body.set('client_secret', config.clientSecret)
+    const res = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body })
+    if (!res.ok) throw new UpstreamError(res.status, (await res.text()).slice(0, 200))
+    const j = await res.json()
+    user.accessToken = j.access_token
+    user.accessExpiry = Date.now() + j.expires_in * 1000
+    if (j.refresh_token && j.refresh_token !== user.refreshToken) user.refreshToken = j.refresh_token
+    await saveUser(user)
+    return user.accessToken
+  })()
+  refreshInFlight.set(user.id, p)
+  try {
+    return await p
+  } finally {
+    refreshInFlight.delete(user.id)
+  }
 }
 
 // Tesla routes user data to the account's home-region host — resolve it once
@@ -174,6 +253,37 @@ function rateLimited(userId) {
   return s.count > RATE_LIMIT
 }
 
+// The OAuth endpoints below run BEFORE a per-user API key exists, so they
+// aren't covered by rateLimited() above at all — without a separate limit, an
+// anonymous caller could hammer /oauth/start + /oauth/complete in a loop,
+// which reaches Tesla's token endpoint under the one shared Client ID on
+// every call. Keyed by source IP (nginx sets X-Real-IP; this process only
+// ever hears from nginx on localhost, so the header is trustworthy here).
+const IP_RATE_LIMIT = 20
+const IP_RATE_WINDOW_MS = 60_000
+const ipRateState = new Map() // ip -> { windowStart, count }
+function clientIp(req) {
+  return req.headers['x-real-ip'] || req.socket.remoteAddress || 'unknown'
+}
+function ipRateLimited(req) {
+  const ip = clientIp(req)
+  const now = Date.now()
+  const s = ipRateState.get(ip)
+  if (!s || now - s.windowStart > IP_RATE_WINDOW_MS) {
+    ipRateState.set(ip, { windowStart: now, count: 1 })
+    return false
+  }
+  s.count++
+  return s.count > IP_RATE_LIMIT
+}
+// Bound the memory a flood of distinct IPs can hold it to, independent of the
+// window logic above (a slow trickle from many IPs never trips the per-IP
+// limit but would otherwise grow this map forever).
+setInterval(() => {
+  const cutoff = Date.now() - IP_RATE_WINDOW_MS
+  for (const [ip, s] of ipRateState) if (s.windowStart < cutoff) ipRateState.delete(ip)
+}, IP_RATE_WINDOW_MS).unref?.()
+
 // --- Server-mediated OAuth ------------------------------------------------------
 // The app never sees the shared Client Secret. It opens the Tesla login the
 // server hands back, Tesla redirects to THIS server (not the app), a tiny
@@ -181,6 +291,11 @@ function rateLimited(userId) {
 // that code back here for the actual token exchange.
 const pendingAuth = new Map() // state -> { verifier, createdAt }
 const AUTH_TTL_MS = 10 * 60 * 1000
+// Hard ceiling independent of the IP rate limiter above — that limiter is
+// per-IP, so a flood spread across many distinct IPs (each well under its
+// own 20/min) could otherwise still grow this map without bound within the
+// 10-minute TTL.
+const MAX_PENDING_AUTH = 10_000
 
 function pruneExpiredAuth() {
   const now = Date.now()
@@ -189,6 +304,9 @@ function pruneExpiredAuth() {
 
 function startOAuth() {
   pruneExpiredAuth()
+  if (pendingAuth.size >= MAX_PENDING_AUTH) {
+    throw new UpstreamError(503, 'too many pending sign-ins — try again shortly')
+  }
   const verifier = b64url(randomBytes(32))
   const challenge = b64url(createHash('sha256').update(verifier).digest())
   const state = b64url(randomBytes(16))
@@ -223,20 +341,31 @@ async function completeOAuth(code, state) {
   const res = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body })
   if (!res.ok) throw new UpstreamError(res.status, (await res.text()).slice(0, 200))
   const j = await res.json()
+  const teslaSub = j.id_token ? decodeIdTokenSub(j.id_token) : null
 
-  const id = randomUUID()
+  // Re-sign-in by an account we already know: reuse its record (and rate
+  // bucket) instead of minting a fresh userId every time — otherwise one
+  // person can repeat this flow to get as many independent 30/min buckets
+  // as they like, defeating the whole point of per-user rate limiting.
+  const existingId = teslaSub ? teslaSubIndex.get(teslaSub) : null
+  const id = existingId || randomUUID()
   const apiKey = b64url(randomBytes(32))
+  const previous = existingId ? await loadUser(existingId) : null
+  if (previous) apiKeyIndex.delete(previous.apiKeyHash) // old key stops working on reconnect
+
   const user = {
     id,
     apiKeyHash: sha256hex(apiKey),
+    teslaSub,
     refreshToken: j.refresh_token,
     accessToken: j.access_token,
     accessExpiry: Date.now() + j.expires_in * 1000,
     regionBase: config.regionBase,
-    createdAt: new Date().toISOString(),
+    createdAt: previous?.createdAt || new Date().toISOString(),
   }
   await saveUser(user)
   apiKeyIndex.set(user.apiKeyHash, id)
+  if (teslaSub) teslaSubIndex.set(teslaSub, id)
   resolveRegion(user) // fire-and-forget refine; doesn't block the response
   return { apiKey, userId: id }
 }
@@ -342,10 +471,14 @@ async function readBody(req) {
 // page's only job is to hand the code+state to the app's custom URL scheme so
 // ASWebAuthenticationSession can intercept it — the same pattern already
 // proven for the single-tenant personal relay's manual login flow.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+
 function callbackHTML(code, state, error) {
   if (error) {
     return `<!doctype html><meta charset="utf-8"><title>EEAccess</title>
-      <p style="font-family:system-ui">Sign-in failed: ${error}. Return to the app and try again.</p>`
+      <p style="font-family:system-ui">Sign-in failed: ${escapeHtml(error)}. Return to the app and try again.</p>`
   }
   const target = `eeaccess://tesla/relay-callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`
   return `<!doctype html><meta charset="utf-8"><title>EEAccess</title>
@@ -359,6 +492,14 @@ const server = createServer(async (req, res) => {
     const p = url.pathname.split('/').filter(Boolean)
 
     if (url.pathname === '/health') return json(res, 200, { ok: true, users: apiKeyIndex.size })
+
+    // These three run before any API key exists, so they're the one place an
+    // anonymous caller can reach Tesla's token endpoint under the shared
+    // Client ID — gate them on source IP since the per-user limiter below
+    // doesn't apply yet.
+    if (url.pathname === '/oauth/start' || url.pathname === '/oauth/callback' || url.pathname === '/oauth/complete') {
+      if (ipRateLimited(req)) return json(res, 429, { error: 'rate limit exceeded — slow down' })
+    }
 
     if (req.method === 'GET' && url.pathname === '/oauth/start') {
       return json(res, 200, startOAuth())
@@ -411,7 +552,11 @@ const server = createServer(async (req, res) => {
       if (req.method === 'POST' && sub === 'wake') return json(res, 200, await tesla(user, 'POST', `/api/1/vehicles/${vin}/wake_up`))
       if (req.method === 'POST' && sub === 'schedule') {
         const body = await readBody(req)
-        return json(res, 200, await scheduleUnlockDrive(user.id, vin, Number(body.delay ?? 60)))
+        const delay = Number(body.delay ?? 60)
+        if (!Number.isFinite(delay) || delay < 0 || delay > 24 * 60 * 60) {
+          throw new UpstreamError(400, 'delay must be a number of seconds between 0 and 86400')
+        }
+        return json(res, 200, await scheduleUnlockDrive(user.id, vin, delay))
       }
       if (req.method === 'POST' && CMD[sub]) return json(res, 200, await sendCommand(user, vin, sub))
     }
@@ -419,8 +564,13 @@ const server = createServer(async (req, res) => {
     json(res, 404, { error: 'not found' })
   } catch (e) {
     log('error:', e.message)
-    const status = e instanceof UpstreamError && e.status >= 400 && e.status < 600 ? e.status : 502
-    json(res, status, { error: e.message })
+    if (e instanceof UpstreamError) {
+      const status = e.status >= 400 && e.status < 600 ? e.status : 502
+      return json(res, status, { error: e.message })
+    }
+    // Anything else (fs errors, JSON parse failures, …) can carry internal
+    // paths or parser internals in e.message — never forward that to a client.
+    json(res, 500, { error: 'internal error' })
   }
 })
 

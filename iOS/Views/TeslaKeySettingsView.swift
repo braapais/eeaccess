@@ -7,6 +7,7 @@ import SwiftData
 struct TeslaKeySettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(TeslaFleetAuth.self) private var fleetAuth
+    @EnvironmentObject private var sync: PhoneSyncService
     @Query(sort: \TeslaVehicle.createdAt) private var vehicles: [TeslaVehicle]
 
     var body: some View {
@@ -98,6 +99,10 @@ struct TeslaKeySettingsView: View {
                     .foregroundStyle(.green)
                 Button(role: .destructive) {
                     fleetAuth.disconnect()
+                    // Without this, the watch keeps whatever Fleet session it
+                    // last synced (and can keep refreshing/commanding the car)
+                    // even though the phone shows "disconnected".
+                    sync.sendTeslaCloudSessionClear()
                 } label: {
                     Label("Disconnect", systemImage: "person.badge.minus")
                 }

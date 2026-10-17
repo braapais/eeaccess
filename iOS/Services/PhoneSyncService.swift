@@ -166,6 +166,18 @@ final class PhoneSyncService: NSObject, ObservableObject, WCSessionDelegate {
         try? session.updateApplicationContext(context)
     }
 
+    /// Tells the watch to wipe its synced Tesla cloud session. Sent when the
+    /// user disconnects their Tesla account on the phone — without an
+    /// explicit clear, the watch would just keep whatever session it already
+    /// has (replacing the application context with one that omits the token
+    /// fields doesn't clear anything already applied) and could go on
+    /// refreshing and commanding the car after the user believes access was
+    /// revoked.
+    func sendTeslaCloudSessionClear() {
+        guard session.activationState == .activated else { return }
+        try? session.updateApplicationContext(["teslaCleared": true])
+    }
+
     /// Syncs the relay's on/off flag + auto-provisioned API key to the watch so
     /// its cloud cars can go through the shared relay too. The relay's URL is a
     /// fixed constant on both platforms — nothing else to sync, no username or
@@ -277,6 +289,15 @@ final class PhoneSyncService: NSObject, ObservableObject, WCSessionDelegate {
             card.lastUsedAt = date
             try? context.save()
         }
+    }
+
+    /// `transferFile` doesn't delete its source file for us — per Apple's
+    /// contract, the sender does that once the transfer finishes. Every
+    /// `sendUpsert`/`sendDelete`/etc. above writes into `temporaryDirectory`
+    /// and never removed it, so every card sync (and every `resyncAll()`,
+    /// which fires on every WCSession activation) leaked a file forever.
+    func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        try? FileManager.default.removeItem(at: fileTransfer.file.fileURL)
     }
 
     func sessionDidBecomeInactive(_ session: WCSession) {}

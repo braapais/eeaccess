@@ -324,6 +324,14 @@ final class TeslaKeyService {
     private func ensureClient(vin: String) -> TeslaVehicleClient {
         if let client, clientVIN == vin { return client }
         stateObservation?.cancel()
+        // Switching to a different VIN's client — tear down the outgoing
+        // one's BLE link first. Only one connection should ever be open at a
+        // time; without this, navigating between vehicle screens left the
+        // previous car's link dangling (radio + battery waste, and a stale
+        // actor nothing else ever disconnects).
+        if let dying = client {
+            Task { await dying.disconnect() }
+        }
         let newClient = TeslaVehicleClient(vin: vin, keyStore: keyStore)
         client = newClient
         clientVIN = vin

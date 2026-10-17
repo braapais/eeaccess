@@ -273,7 +273,19 @@ struct AddCardView: View {
     @ViewBuilder
     private var barcodeAndImageSection: some View {
         Section {
-            Picker("Type", selection: $barcodeType) {
+            // Custom binding (rather than `$barcodeType` directly) so only a
+            // user-driven picker change clears the stale pasted image — the
+            // decode flow (`handlePastedImageOrBarcode`) sets `barcodeType`
+            // and `pastedBarcodeImageData` together and must leave both
+            // alone. Without this, picking a different type after pasting a
+            // barcode left the old image saved under the new type's label.
+            Picker("Type", selection: Binding(
+                get: { barcodeType },
+                set: { newType in
+                    if newType != barcodeType { pastedBarcodeImageData = nil }
+                    barcodeType = newType
+                }
+            )) {
                 ForEach(barcodeTypes) { option in
                     Text(option.label).tag(option.id)
                 }

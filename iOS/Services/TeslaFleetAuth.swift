@@ -100,18 +100,33 @@ final class TeslaFleetAuth {
     /// Returns a valid access token, refreshing if it is near expiry. `nil` if
     /// signed out or refresh fails.
     func validAccessToken() async -> String? {
-        guard var tokens = tokenStore.load() else { return nil }
+        guard let tokens = tokenStore.load() else { return nil }
         if tokens.expiresAt > Date().addingTimeInterval(60) {
             return tokens.accessToken
         }
         do {
-            tokens = try await refresh(tokens)
-            tokenStore.save(tokens)
-            return tokens.accessToken
+            let refreshed = try await coalescedRefresh(tokens)
+            return refreshed.accessToken
         } catch {
             status = .failed("Session expired — reconnect")
             return nil
         }
+    }
+
+    /// In-flight refresh, shared by concurrent callers. Without this, two
+    /// callers racing past the expiry check above would each fire their own
+    /// network refresh against the same refresh token — whichever response
+    /// lands second can overwrite the Keychain with a token Tesla has already
+    /// rotated out, breaking the next refresh.
+    private var refreshTask: Task<TeslaTokens, Error>?
+    private func coalescedRefresh(_ tokens: TeslaTokens) async throws -> TeslaTokens {
+        if let refreshTask { return try await refreshTask.value }
+        let task = Task { try await self.refresh(tokens) }
+        refreshTask = task
+        defer { refreshTask = nil }
+        let refreshed = try await task.value
+        tokenStore.save(refreshed)
+        return refreshed
     }
 
     // MARK: - OAuth plumbing

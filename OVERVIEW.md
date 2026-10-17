@@ -99,9 +99,16 @@ Plus two visual identifiers:
 - **Auto-entry (best-effort):** unlocks on approach / locks on walk-away while
   the app is awake on screen; deliberately conservative — auto-unlock requires
   the app frontmost so unlocking is always tied to user intent.
-- **Cloud control from the iPhone (optional):** Tesla account sign-in, battery
-  / lock / temperature snapshot, wake, and — with Tesla's signing proxy
-  configured — remote lock/unlock and climate.
+- **Cloud control (optional):** Tesla account sign-in on iPhone or watch,
+  battery/lock/temperature snapshot, wake-with-progress, lock/unlock,
+  climate, and "Unlock & Drive" (immediate or scheduled ahead of a
+  no-signal garage). Two ways in: bring-your-own developer.tesla.com
+  credentials (with a self-run signing proxy for 2021+ cars), or EEAccess's
+  built-in **shared relay** — one Tesla app shared by every user, no
+  registration, no username/password, each user's own OAuth session and
+  vehicles kept separate server-side. Pre-2021 S/X (`.cloud`-mode vehicles,
+  Tesla-exempt from signed commands) route through the relay on both
+  platforms; 2021+ cars always use the signed/BYOC path.
 - **Privacy unchanged:** the key is generated and stored on the watch
   (device-only Keychain, never synced); BLE control needs no account and works
   fully offline. Supported: Model 3/Y/Cybertruck, and 2021+ Model S/X.
@@ -135,6 +142,11 @@ Plus two visual identifiers:
 - [x] iPhone Tesla setup: VIN entry synced to watch, account OAuth
       (PKCE), cloud state/wake/lock/unlock/climate via Fleet API
       (commands require the user's tesla-http-proxy on 2021+ cars)
+- [x] Shared multi-tenant relay server (`server/`) for cloud-mode (pre-2021
+      S/X) vehicles: no per-user Tesla app registration, no username/password,
+      server-mediated OAuth, per-user rate limiting, server-side scheduled
+      Unlock+Drive that survives the phone/watch going offline
+- [x] "Unlock & Drive" — immediate and scheduled — on iPhone, watch, and relay
 - [x] Paywall: 14-day trial + one-time unlock, Redeem Code, TestFlight
       and App Review builds bypass via sandbox-receipt check
 - [x] XcodeGen-driven project generation — single source of truth in
@@ -154,7 +166,6 @@ Plus two visual identifiers:
 - [ ] App icon iOS 26 dark/tinted variants + watch circular-safe recompose
       (current icon's corner detail is cropped by the watch circular mask)
 - [ ] App Store assets (screenshots, description, privacy labels)
-- [ ] Final code signing (`DEVELOPMENT_TEAM` is empty in `project.yml`)
 
 ## Technical stack
 
@@ -194,8 +205,8 @@ Plus two visual identifiers:
 | watchOS target builds | Ready |
 | App icons | Set (custom icon, iOS + watch) |
 | Launch screen | Default (auto-generated) |
-| Bundle IDs | Placeholder (`com.brunopais.eeaccess`) |
-| Code signing | Not configured |
+| Bundle IDs | Set (`com.elbaeverywhere.eeaccess` + target suffixes) |
+| Code signing | Automatic, team `325KTS65QS` |
 | TestFlight | Not submitted |
 | App Store | Not submitted |
 

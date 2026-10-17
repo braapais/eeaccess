@@ -185,9 +185,26 @@ Team `325KTS65QS`, automatic signing. Deployment targets iOS 26 / watchOS 26.
   a silently-dropped schedule. Schedules are per-user+VIN and **persisted
   server-side** (`server/schedules.json`) so a pending Unlock+Drive survives a
   service restart — re-armed on boot, fired immediately if overdue within a
-  15-min grace window. Server auth uses constant-time comparison
-  (`timingSafeEqual`) and forwards Tesla's real upstream status (e.g. 408 =
-  asleep, 403 = not your car) instead of flattening every failure to 502.
+  15-min grace window. Server auth looks up a SHA-256 hash of the bearer key
+  in an in-memory Map (`apiKeyIndex`) — O(1) and not a timing channel, since
+  there's nothing to time against once it's a hash-keyed lookup rather than a
+  byte-by-byte compare. The server forwards Tesla's real upstream status
+  (e.g. 408 = asleep, 403 = not your car) instead of flattening every failure
+  to 502, but only for its own `UpstreamError`s — anything else (fs errors,
+  bad JSON) returns a generic 500 so internal details never reach a client.
+  Refresh/access tokens are AES-256-GCM-encrypted at rest (`config.json`'s
+  `encryptionKey` — falls back to deriving one from `clientSecret` with a
+  loud warning if unset) and written temp-file-then-rename so a crash
+  mid-write can't leave a torn user record. Concurrent requests for the same
+  user near token expiry coalesce onto one in-flight refresh instead of each
+  firing their own (two independent refreshes racing a rotating refresh token
+  could otherwise have the loser's save clobber the winner's). `/oauth/start`
+  and `/oauth/complete` run before any API key exists, so they sit outside
+  the 30/min per-user limiter entirely — they're IP-rate-limited instead
+  (20/min/IP), and re-signing in with the same Tesla account (matched via the
+  OAuth `id_token`'s `sub`) reuses that account's existing user record and
+  rate bucket rather than minting a new one each time, which would otherwise
+  let one person bypass the per-user limit by repeating the sign-in flow.
   **Setup dependency:** the shared Tesla app must have
   `https://eeaccess.elbaeverywhere.com/oauth/callback` registered as an
   Allowed Redirect URI at developer.tesla.com (manual, one-time, in addition

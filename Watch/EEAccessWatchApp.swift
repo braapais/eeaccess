@@ -29,8 +29,12 @@ struct EEAccessWatchApp: App {
                 .environment(cloud)
                 .environment(relay)
                 .task(id: sync.teslaSession) {
-                    applySession()
-                    await cloud.ensureFreshToken()
+                    if sync.teslaSession != nil {
+                        applySession()
+                        await cloud.ensureFreshToken()
+                    } else {
+                        cloud.clearSession()
+                    }
                 }
                 .onChange(of: sync.relaySettingsVersion) { _, _ in
                     relay.reloadSettings()

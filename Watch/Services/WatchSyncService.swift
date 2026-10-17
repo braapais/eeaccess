@@ -61,6 +61,14 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
 
     @MainActor
     private func applyTeslaContext(_ context: [String: Any]) {
+        // The phone sends this when the user disconnects their Tesla account
+        // — propagate it as `teslaSession = nil` so the app layer can wipe
+        // WatchTeslaCloud's in-memory tokens too, instead of silently
+        // ignoring a context that has no token fields.
+        if context["teslaCleared"] as? Bool == true {
+            teslaSession = nil
+            return
+        }
         guard let token = context["teslaAccessToken"] as? String, !token.isEmpty,
               let exp = context["teslaExpiresAt"] as? TimeInterval,
               let base = context["teslaBaseURL"] as? String else { return }
@@ -93,6 +101,14 @@ final class WatchSyncService: NSObject, ObservableObject, WCSessionDelegate {
             "id": id.uuidString,
             "at": formatter.string(from: date)
         ])
+    }
+
+    /// `transferFile` doesn't delete its source file for us — `sendCardUsed`
+    /// above writes into `temporaryDirectory` on every card open and never
+    /// removed it, leaking a file per use. Per Apple's contract the sender
+    /// deletes it once the transfer finishes.
+    func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        try? FileManager.default.removeItem(at: fileTransfer.file.fileURL)
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {

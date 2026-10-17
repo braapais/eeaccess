@@ -60,7 +60,10 @@ struct WatchCardListView: View {
             .navigationDestination(for: Card.self) { WatchCardDetailView(card: $0) }
             .task { CardOrdering.migrateLastUsedAtIfNeeded(context: context) }
             .onOpenURL { url in
-                if url.scheme == "eeaccess" { showCar = true }
+                // Host-check, not just scheme — the complication's link is
+                // specifically `eeaccess://car`; matching on scheme alone
+                // would route any future `eeaccess://` link here too.
+                if url.scheme == "eeaccess", url.host == "car" { showCar = true }
             }
             .sheet(isPresented: $showCar) {
                 NavigationStack { WatchTeslaKeyView() }

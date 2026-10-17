@@ -60,6 +60,12 @@ WatchComplication/               → WidgetKit complication ("Tesla Key" on the 
                                    deep-links to WatchTeslaKeyView)
 ShareExtension/                  → iOS share extension
 
+server/                          → Node relay for Tesla cloud commands (see below),
+                                   deployed separately at eeaccess.elbaeverywhere.com —
+                                   not part of either app target
+  server.mjs                       the relay itself
+  README.md                        setup, endpoints, auth model
+
 _xcode_backup_*/                 → snapshot of the earlier Xcode-template
                                    project; safe to delete
 ```
@@ -125,6 +131,33 @@ All three coexist on a single card.
   awake; background "signal loss" is throttling, not distance.
 - Vehicle BLE flows can only be validated on the real car — simulators can't.
 
+## Tesla cloud + relay (built-in, no setup)
+
+Cloud control works two ways:
+
+- **Bring-your-own-credentials (BYOC):** each user registers their own
+  developer.tesla.com app and enters the Client ID in `TeslaCredentialsView`
+  (see `CLAUDE.md`). 2021+ cars additionally need a self-run `tesla-http-proxy`
+  for signed commands.
+- **Shared relay (`server/`, phase 3):** a centrally-hosted, multi-tenant Node
+  relay — one shared Tesla Developer app, no per-user registration, no
+  username/password anywhere (server-mediated OAuth auto-provisions a random
+  per-user API key). Only unsigned commands, so it's used for `.cloud`-mode
+  vehicles (pre-2021 S/X, which Tesla exempts from the signing requirement) —
+  a 2021+ car always falls back to the direct BYOC/signed path instead of
+  silently dropping a command. Toggle it on in `RelayServerView`; settings
+  (`{enabled, apiKey}`) sync phone→watch automatically. Full details, auth
+  model, and endpoint list: `server/README.md`.
+- **Unlock & Drive / scheduled Unlock+Drive:** every cloud client (iPhone
+  direct, watch direct, and the relay path on both) can fire Unlock +
+  Start Drive back-to-back immediately, or schedule it N seconds ahead —
+  the "garage dead-zone" case, trigger it while you still have signal so the
+  car is ready by the time you reach a no-signal garage. Scheduled through
+  the relay, the countdown runs **server-side** (`server/schedules.json`,
+  persisted, re-armed on boot within a 15-minute grace window), so it still
+  fires if the phone/watch goes offline — scheduled directly against Fleet
+  API, it only runs while the app stays foregrounded.
+
 ## Versioning & release workflow
 
 Versions live in `project.yml` only (`MARKETING_VERSION`,
@@ -135,30 +168,26 @@ for feature releases, regenerate, and update CLAUDE.md / README / OVERVIEW to
 match. Archive fresh in the Organizer for each upload — don't re-ship a stale
 archive.
 
-## Bundle IDs (change before submitting)
+## Bundle IDs
 
-`project.yml` currently uses placeholder bundle IDs:
-- iOS: `com.brunopais.eeaccess`
-- Watch: `com.brunopais.eeaccess.watchkitapp`
-- Watch's `Info.plist` references the iOS bundle ID via
-  `WKCompanionAppBundleIdentifier`.
-
-If you change the iOS bundle ID, change all three (and re-run `xcodegen generate`).
+Each target sets its own `PRODUCT_BUNDLE_IDENTIFIER` directly in
+`project.yml` (see the table in `CLAUDE.md`) — iOS is
+`com.elbaeverywhere.eeaccess`, with the other three targets suffixed off it.
+Watch's `Info.plist` references the iOS bundle ID via
+`WKCompanionAppBundleIdentifier`. If you ever change the iOS bundle ID,
+change all four target entries to match (and re-run `xcodegen generate`).
 
 ## Code signing
 
-The XcodeGen spec leaves `DEVELOPMENT_TEAM` empty. To run on a real device
-or upload to the App Store, set your team ID under **Signing & Capabilities**
-in Xcode (it persists in the generated project for the active user; commit
-your `project.yml` change instead by adding `DEVELOPMENT_TEAM: ABCDE12345`
-in the `settings.base` block).
+Team `325KTS65QS`, automatic signing, set in `project.yml`'s `settings.base`
+— Xcode-side signing changes are overwritten by `xcodegen generate`, so edit
+`DEVELOPMENT_TEAM` there instead.
 
 ## App Store submission checklist
 
 - [x] App icon set (iOS + watchOS) — custom icon in both `AppIcon.appiconset`s
       (source: `BrandAssets/app-icon-1024.png`). TODO before App Store: clean
       watermark-free regen, iOS 26 dark/tinted variants, watch circular-safe crop
-- [ ] Set `DEVELOPMENT_TEAM` and final bundle IDs in `project.yml`
 - [ ] Privacy nutrition labels: "Data Not Collected" (everything local)
 - [ ] Camera + Photos usage strings (already in `iOS/Info.plist`)
 - [ ] Screenshots: iPhone (6.7" + 6.1") and Apple Watch (Series 9 / Ultra)

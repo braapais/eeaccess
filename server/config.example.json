@@ -4,5 +4,6 @@
   "regionBase": "https://fleet-api.prd.eu.vn.cloud.tesla.com",
   "redirectUri": "https://YOUR_DOMAIN/oauth/callback",
   "host": "127.0.0.1",
-  "port": 8737
+  "port": 8737,
+  "encryptionKey": "GENERATE_WITH_openssl_rand_-hex_32"
 }
