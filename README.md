@@ -31,7 +31,7 @@ Shared/                          → in BOTH app targets
 
 iOS/                             → iOS target only
   EEAccessApp.swift                @main entry, ModelContainer wiring
-  Views/CardListView.swift         Wallet list (toolbar: Tesla Key icon → setup)
+  Views/CardListView.swift         Wallet list (toolbar: Tesla Key icon → setup; version/build footer)
   Views/CardDetailView.swift       Fullscreen barcode display
   Views/AddCardView.swift          Add card (camera scan, photo upload, paste, manual)
   Views/TeslaKeySettingsView.swift Tesla: VIN entry + sync, account OAuth, cloud control

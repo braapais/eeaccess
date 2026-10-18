@@ -36,6 +36,7 @@ struct CardListView: View {
                         .listStyle(.insetGrouped)
                     }
                 }
+                versionFooter
             }
             .navigationTitle("Wallet")
             .navigationDestination(for: Card.self) { CardDetailView(card: $0) }
@@ -144,6 +145,16 @@ struct CardListView: View {
     private var priceSuffix: String {
         guard let price = entitlement.product?.displayPrice else { return "" }
         return " for \(price)"
+    }
+
+    private var versionFooter: some View {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return Text("v\(version) (\(build))")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .padding(.vertical, 6)
     }
 
     private func move(from source: IndexSet, to destination: Int) {
